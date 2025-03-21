@@ -19,7 +19,7 @@ def find_song(query):
     result = "Найденные варианты:\n" + "\n".join(
         [f"{i}. {entry['title']} - {entry['uploader']}" for i, entry in enumerate(search_results['entries'], 1)]
     )
-    result = result + "\n\nВведите номер трека для скачивания или повторите поиск:"
+    result = result + "\n\nВведите номер трека для скачивания или повторите поиск"
     count = len(search_results['entries'])
     return result, search_results['entries'], count
 

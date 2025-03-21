@@ -1,40 +1,19 @@
-"""
-2. Поиск музыки
-Пользователь нажимает кнопку 🎵 Поиск музыки.
-Бот предлагает выбрать тип поиска:
-🔍 По названию
-✍️ По автору
-🎤 По голосовому сообщению
-Пользователь выбирает тип поиска:
-Если выбран 🔍 По названию или ✍️ По автору, бот запрашивает текстовый ввод.
-Если выбран 🎤 По голосовому сообщению, бот запрашивает голосовое сообщение.
-Бот обрабатывает запрос и выдает список до 10 песен в формате:
-Copy
-1. Название песни - Автор
-2. Название песни - Автор
-...
-Под списком кнопки:
-Выбрать песню (1-10) (кнопки с номерами)
-🔄 Повторить поиск
-Если пользователь выбирает песню:
-Бот отправляет песню в формате .mp3.
-Под песней кнопки:
-➕ Добавить в плейлист
-🔙 Назад к списку
-Если пользователь нажимает ➕ Добавить в плейлист, бот предлагает выбрать плейлист из списка (см. раздел "Мои плейлисты").
-"""
-from aiogram import F, types, Router
+from aiogram import F, types, Router, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+
+# TODO убрать хардкод
+from handlers.search.hardcode import count, result_search, path_with_song
+from sources.search.search import find_most_similar_song
 # импортируем статусы
 from states.states_search import SearchStates
-
 # парсер из ютуба
 from sources.parsers.parser_youtube import find_song, download_song
 
 router = Router()
+
 
 @router.callback_query(F.data == 'search')
 async def start_search(callback: types.CallbackQuery, state: FSMContext):
@@ -55,9 +34,11 @@ async def start_search(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(SearchStates.choose_method)
 
 
+# случай, если текст
 @router.callback_query(F.data == "text", SearchStates.choose_method)
 async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer(text="Принято! Тогда введите свой запрос. Укажите имя и/или автора:")
+    mes_text = "Принято! Тогда введите свой запрос. Укажите название песни и/или автора:"
+    await callback.message.answer(text=mes_text)
     await state.set_state(SearchStates.wait_info_about_song)
 
 
@@ -65,22 +46,6 @@ async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
 async def request_processing(message: types.Message, state: FSMContext):
     await message.answer("Ищу! Минутку...")
     # result_search, data, count = find_song(message.text)
-    result_search = """
-Найденные варианты:
-1. The neighborhood playlist - Melodylian
-2. The Neighbourhood - Sweater Weather (Official Video) - The Neighbourhood
-3. The Neighbourhood - Softcore (Official Audio) - The Neighbourhood
-4. The Neighbourhood - Reflections (Official Audio) - The Neighbourhood
-5. The Neighbourhood - W.D.Y.W.F.M? (Official Audio) - The Neighbourhood
-6. The Neighbourhood - You Get Me So High (Official Audio) - The Neighbourhood
-7. The Neighbourhood - Afraid (Official Audio) - The Neighbourhood
-8. The Neighbourhood - A Little Death (Official Audio) - The Neighbourhood
-9. the neighbourhood - r.i.p. 2 my youth // slowed + reverb - kouyou
-10. The Neighbourhood - Reflections (Lyrics) - Aura Melodies
-
-Введите номер трека для скачивания или повторите поиск:
-    """
-    count = 10
 
     # TODO проверка что хоть что-то нашлось
     # сохраняем данные поиска
@@ -123,8 +88,38 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
     ))
 
     # path_with_song = download_song(int(callback.data), result, path)
-    path_with_song = path + "/The neighborhood playlist.mp3"
     # TODO проверки что скачалось
     file = FSInputFile(path_with_song)
     await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
+
+
+# случай, если гс
+@router.callback_query(F.data == "audio", SearchStates.choose_method)
+async def get_voice(callback: types.CallbackQuery, state: FSMContext):
+    mes_text = "Хорошо! Тогда запишите голосовое сообщение, где будет слышно песню, примерно на 30 сек."
+    await callback.message.answer(text=mes_text)
+    await state.set_state(SearchStates.wait_audio)
+
+
+@router.message(F.voice, SearchStates.wait_audio)
+async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
+    file_path = f"{message.voice.file_id}.ogg"
+    await bot.download(message.voice.file_id, destination=file_path)
+
+    nearest_song, max_similarity = find_most_similar_song(file_path)
+
+    markup = InlineKeyboardBuilder()
+    markup.add(types.InlineKeyboardButton(
+        text="➕ Добавить в плейлист",
+        callback_data="add_song"
+    ))
+
+    if max_similarity > 0.5:
+        file = FSInputFile(path_with_song)
+        await message.answer_audio(file, reply_markup=markup.as_markup())
+        await state.clear()
+    else:
+        text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
+        await message.answer(text=text)
+        await state.clear()
