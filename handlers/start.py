@@ -7,7 +7,8 @@ router = Router()
 async def start(message: types.Message):
     kb = [
         [types.KeyboardButton(text="🕒 История поиска")],
-        [types.KeyboardButton(text="🎵 Поиск музыки")]
+        [types.KeyboardButton(text="🎵 Поиск музыки")],
+        [types.KeyboardButton(text="⬆️ Загрузить трек")]
     ]
     keyboard = types.ReplyKeyboardMarkup(keyboard=kb)
 

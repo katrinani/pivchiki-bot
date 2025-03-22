@@ -7,7 +7,7 @@ from states.states_history import HistoryStates
 
 router = Router()
 
-@router.message(F.data == "🕒 История поиска")
+@router.message(F.text.endswith("История поиска"))
 async def start_history(message: types.Message, state: FSMContext):
     await state.set_state(HistoryStates.history)
     await state.update_data(page=0)
@@ -15,14 +15,14 @@ async def start_history(message: types.Message, state: FSMContext):
 
 
 async def show_history_page(message: types.Message, state: FSMContext):
-    # TODO запрос в бд на историю поиска в history_list
+    # TODO запрос в бд на получение инфы
     data = await state.get_data()
     page = data.get("page", 0)
     start = page * 10
     end = start + 10
     current_history = list(history_list.items())[start:end]
 
-    mes_text = ""
+    mes_text = "История ваших прослушиваний:\n\n"
     for song, date in current_history:
         mes_text += f"{date}: {song}\n"
 
@@ -41,13 +41,18 @@ async def show_history_page(message: types.Message, state: FSMContext):
         markup.add(right)
     markup.adjust(2)
 
-    # Удаляем предыдущее сообщение, если оно есть
+    # Редактируем существующее сообщение, если оно есть
     if "last_message_id" in data:
-        await message.bot.delete_message(message.chat.id, data["last_message_id"])
-
-    # Отправляем новое сообщение и сохраняем его ID
-    new_message = await message.answer(text=mes_text, reply_markup=markup.as_markup())
-    await state.update_data(last_message_id=new_message.message_id)
+        await message.bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=data["last_message_id"],
+            text=mes_text,
+            reply_markup=markup.as_markup()
+        )
+    else:
+        # Если сообщения нет, отправляем новое и сохраняем его ID
+        new_message = await message.answer(text=mes_text, reply_markup=markup.as_markup())
+        await state.update_data(last_message_id=new_message.message_id)
 
 
 @router.callback_query(F.data == "left")
