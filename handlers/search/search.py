@@ -15,9 +15,10 @@ from sources.parsers.parser_youtube import find_song, download_song
 router = Router()
 
 
-@router.callback_query(F.data == 'search')
-async def start_search(callback: types.CallbackQuery, state: FSMContext):
+@router.message(F.data == "🎵 Поиск музыки")
+async def start_search(message: types.Message, state: FSMContext):
     # TODO сохранить и использовать для удаления callback.message.message_id
+    # TODO сохранить в бд запрос и время
 
     markup = InlineKeyboardBuilder()
     by_text = types.InlineKeyboardButton(
@@ -30,7 +31,7 @@ async def start_search(callback: types.CallbackQuery, state: FSMContext):
     )
     markup.add(by_text, by_audio)
     markup.adjust(1, 1)
-    await callback.message.answer(text="Выберите тип поиска:", reply_markup=markup.as_markup())
+    await message.answer(text="Выберите тип поиска:", reply_markup=markup.as_markup())
     await state.set_state(SearchStates.choose_method)
 
 
@@ -107,7 +108,8 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     file_path = f"{message.voice.file_id}.ogg"
     await bot.download(message.voice.file_id, destination=file_path)
 
-    nearest_song, max_similarity = find_most_similar_song(file_path)
+    # nearest_song, max_similarity = find_most_similar_song(file_path)
+    nearest_song, max_similarity = "song_1", 0.7
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(

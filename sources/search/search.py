@@ -4,7 +4,11 @@ import librosa
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Загрузка предобученной модели VGGish
-model = hub.load('https://tfhub.dev/google/vggish/1')
+try:
+    model = hub.load('https://tfhub.dev/google/vggish/1')
+except KeyboardInterrupt:
+    print("Process interrupted by user.")
+    # Handle cleanup or exit gracefully
 
 # Функция для извлечения признаков из аудиофрагмента
 def extract_features(audio_path):
