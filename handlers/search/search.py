@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
 # TODO убрать хардкод
-from handlers.search.hardcode import count, result_search, path_with_song
+#from handlers.search.hardcode import count, result_search, path_with_song
 # from sources.search.search import find_most_similar_song
 # импортируем статусы
 from states.states_search import SearchStates
