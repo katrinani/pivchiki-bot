@@ -6,6 +6,7 @@ from handlers.search import search
 from handlers.history import history
 from handlers.download import download
 from handlers.recommendations import  recommendations
+from handlers.playlists import playlists
 
 TOKEN = "5468648366:AAFN1A3VR-a_TDaKpnCEYezbpKqrqG7C8QA"
 
@@ -19,6 +20,7 @@ async def main():
     dp.include_router(history.router)
     dp.include_router(download.router)
     dp.include_router(recommendations.router)
+    dp.include_router(playlists.router)
 
     #  dp.include_router(файл.router)
 

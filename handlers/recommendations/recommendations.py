@@ -1,5 +1,3 @@
-import asyncio
-from os import remove
 from aiogram import F, types, Router, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
@@ -8,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from states.states_recommendations import RecommendationsStates
 
 router = Router()
-
+#TODO убрать дудос сообщений
 
 #клавиатура для оценок
 grade_markup =InlineKeyboardBuilder()
@@ -95,7 +93,7 @@ async def choose_mood(callback: types.CallbackQuery, state: FSMContext):
     markup.add(by_happy, by_sad, by_relax, by_cheerful)
     markup.adjust(1, 1, 1, 1)
 
-    mes_text = ("Выберите настроение")
+    mes_text = "Выберите настроение"
     await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(RecommendationsStates.choose_recommendations)
 
@@ -107,7 +105,7 @@ async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
     songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
 
     for song in songs:
-        mes_text = f"{song}\n"
+        mes_text += f"{song}\n"
         await callback.message.answer(text=mes_text, reply_markup=grade_markup.as_markup())
 
     await state.set_state(RecommendationsStates.wait_recommendations)
@@ -119,7 +117,7 @@ async def happy_mood(callback: types.CallbackQuery, state: FSMContext):
     songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
 
     for song in songs:
-        mes_text = f"{song}\n"
+        mes_text += f"{song}\n"
         await callback.message.answer(text=mes_text, reply_markup=grade_markup.as_markup())
 
     await state.set_state(RecommendationsStates.wait_recommendations)
@@ -127,11 +125,11 @@ async def happy_mood(callback: types.CallbackQuery, state: FSMContext):
 #relax mood
 @router.callback_query(F.data == "relax", RecommendationsStates.choose_recommendations)
 async def relax_mood(callback: types.CallbackQuery, state: FSMContext):
-    mes_text = ("Вот спокойный плейлист:")
+    mes_text = "Вот спокойный плейлист:\n"
     songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
 
     for song in songs:
-        mes_text = f"{song}\n"
+        mes_text += f"{song}\n"
         await callback.message.answer(text=mes_text,  reply_markup=grade_markup.as_markup())
 
     await state.set_state(RecommendationsStates.wait_recommendations)
@@ -139,11 +137,11 @@ async def relax_mood(callback: types.CallbackQuery, state: FSMContext):
 #cheerful mood
 @router.callback_query(F.data == "cheerful", RecommendationsStates.choose_recommendations)
 async def cheerful_mood(callback: types.CallbackQuery, state: FSMContext):
-    mes_text = ("Вот бодрый плейлист:")
+    mes_text = "Вот бодрый плейлист:\n"
     songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5", "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
 
     for song in songs:
-        mes_text = f"{song}\n"
+        mes_text += f"{song}\n"
         await callback.message.answer(text=mes_text, reply_markup=grade_markup.as_markup())
 
     await state.set_state(RecommendationsStates.wait_recommendations)
