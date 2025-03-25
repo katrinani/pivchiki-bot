@@ -15,6 +15,8 @@ async def start_history(message: types.Message, state: FSMContext):
 
 
 async def show_history_page(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+
     # TODO запрос в бд на получение инфы
     data = await state.get_data()
     page = data.get("page", 0)
