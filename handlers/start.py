@@ -11,7 +11,7 @@ async def start(message: types.Message):
         [types.KeyboardButton(text="⬆️ Загрузить трек")],
         [types.KeyboardButton(text="🎧 Рекомендации")],
         [types.KeyboardButton(text="📁 Мои плейлисты")],
-        [types.KeyboardButton(text="⚙️ Настройки")],
+        #[types.KeyboardButton(text="⚙️ Настройки")],
     ]
     keyboard = types.ReplyKeyboardMarkup(keyboard=kb)
 

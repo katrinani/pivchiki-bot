@@ -3,9 +3,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from pyexpat.errors import messages
 from wsproto.events import Message
-
 from states.states_playlists import PlaylistsStates
-from states.states_recommendations import RecommendationsStates
 
 router = Router()
 
@@ -50,11 +48,14 @@ async def playlist_menu(callback: types.CallbackQuery, state: FSMContext):
 
     songs = ""
     count = 0
-    for name in playlists[name_playlist]:
-        count += 1
-        songs += f"\n{count}: {name}"
-    await callback.message.edit_text(text=f"{songs}", reply_markup=markup.as_markup())
-    await state.set_state(PlaylistsStates.choose_action)
+    if len(playlists[name_playlist]) != 0:
+        for name in playlists[name_playlist]:
+            count += 1
+            songs += f"\n{count}: {name}"
+        await callback.message.edit_text(text=f"{songs}", reply_markup=markup.as_markup())
+        await state.set_state(PlaylistsStates.choose_action)
+    else:
+        await callback.message.edit_text(text=f"Плейлист пуст")
 
 #редактирование
 @router.callback_query(F.data == "edit", PlaylistsStates.choose_action)
