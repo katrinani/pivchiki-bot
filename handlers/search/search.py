@@ -4,21 +4,21 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-
-# TODO убрать хардкод
-#from handlers.search.hardcode import count, result_search, path_with_song
-# from sources.search.search import find_most_similar_song
+from sources.search.search import find_most_similar_song
 # импортируем статусы
 from states.states_search import SearchStates
 # парсер из ютуба
-from sources.parsers.parser_youtube import find_song, download_song
+from sources.parsers.YouTubeBomber import find_in_youtube, download_song
+# методы бд
+from sources.postgres.sql_requests import save_search_history
+
 
 router = Router()
 
 
 @router.message(F.text.endswith("Поиск музыки"))
 async def start_search(message: types.Message, state: FSMContext):
-    # TODO сохранить в бд запрос и время
+
 
     markup = InlineKeyboardBuilder()
     by_text = types.InlineKeyboardButton(
@@ -47,13 +47,24 @@ async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(F.text, SearchStates.wait_info_about_song)
 async def request_processing(message: types.Message, state: FSMContext):
+    # сохранить в бд запрос и время запроса
+    user_id = message.from_user.id
+    save_search_history(user_id, message.text)
+
     sent_message = await message.answer("Ищу! Минутку...")
     await state.update_data(search_message_id=sent_message.message_id)
-    # result_search, data, count = find_song(message.text)
 
-    # TODO проверка что хоть что-то нашлось
+    answer = find_in_youtube(message.text)
+    if not answer[0]:
+        await message.answer(answer[1])
+        return
+
+    result = answer[1]
+    data = answer[2]
+    count = answer[3]
+
     # сохраняем данные поиска
-    # await state.update_data({"result": data})
+    await state.update_data({"result": data})
 
     markup = InlineKeyboardBuilder()
     for i in range(count):
@@ -69,7 +80,7 @@ async def request_processing(message: types.Message, state: FSMContext):
     await message.bot.edit_message_text(
         chat_id=message.chat.id,
         message_id=data["search_message_id"],
-        text=result_search,
+        text=result,
         reply_markup=markup.as_markup()
     )
     await state.set_state(SearchStates.send_song)
@@ -82,8 +93,8 @@ async def request_processing(message: types.Message, state: FSMContext):
 async def send_song(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Замечательный выбор! Загружаю...")
     # получаем результаты хендлера выше
-    # data = await state.get_data()
-    # result = data["result"]
+    data = await state.get_data()
+    result = data["result"]
 
     path = "sources/songs"
 
@@ -93,9 +104,12 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
         callback_data="add_song"
     ))
 
-    # path_with_song = download_song(int(callback.data), result, path)
-    # TODO проверки что скачалось
+    answer = download_song(int(callback.data[-1]), result, path)
+    if not answer[0]:
+        await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
+        return
 
+    path_with_song = answer[1]
     file = FSInputFile(path_with_song)
     await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
@@ -115,8 +129,12 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     file_path = f"{message.voice.file_id}.ogg"
     await bot.download(message.voice.file_id, destination=file_path)
 
-    # nearest_song, max_similarity = find_most_similar_song(file_path)
-    nearest_song, max_similarity = "song_1", 0.7
+    nearest_song, max_similarity = find_most_similar_song(file_path)
+    path = f"sources/songs/{nearest_song}"
+
+    # сохранить в бд запрос и время запроса
+    user_id = message.from_user.id
+    save_search_history(user_id, nearest_song)
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
@@ -125,8 +143,9 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     ))
 
     if max_similarity > 0.5:
-        file = FSInputFile(path_with_song)
-        await message.answer_audio(file, reply_markup=markup.as_markup())
+        file = FSInputFile(path)
+        mes_text = f"Я нашел:\n{nearest_song}"
+        await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
         remove(file_path)
         await state.clear()
     else:

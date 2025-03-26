@@ -2,10 +2,11 @@ from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from handlers.history.hardcode import history_list
 from states.states_history import HistoryStates
+from sources.postgres.sql_requests import get_history
 
 router = Router()
+
 
 @router.message(F.text.endswith("История поиска"))
 async def start_history(message: types.Message, state: FSMContext):
@@ -15,16 +16,26 @@ async def start_history(message: types.Message, state: FSMContext):
 
 
 async def show_history_page(message: types.Message, state: FSMContext):
-    # TODO запрос в бд на получение инфы
+    user_id = message.from_user.id
+
+    history_list = get_history(user_id)
+
     data = await state.get_data()
     page = data.get("page", 0)
-    start = page * 10
-    end = start + 10
-    current_history = list(history_list.items())[start:end]
+    items_per_page = 10
+    start = page * items_per_page
+    end = start + items_per_page
+    current_history = history_list[start:end]
 
-    mes_text = "История ваших прослушиваний:\n\n"
-    for song, date in current_history:
-        mes_text += f"{date}: {song}\n"
+    mes_text = "Ваша история прослушиваний:\n\n"
+    for idx, item in enumerate(current_history, start=1):
+        mes_text += (
+            f"{idx + start}. {item['song']} - {item['artist']}\n"
+            f"   🗓 {item['date']}\n\n"
+        )
+
+    total_pages = (len(history_list) + items_per_page - 1) // items_per_page
+    mes_text += f"Страница {page + 1} из {total_pages}"
 
     markup = InlineKeyboardBuilder()
     if page > 0:
