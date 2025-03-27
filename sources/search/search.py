@@ -1,10 +1,13 @@
+import os
+import tensorflow as tf
 import numpy as np
 import tensorflow_hub as hub
 import librosa
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Загрузка предобученной модели VGGish
-model = hub.load('https://tfhub.dev/google/vggish/1')
+# Загрузка модели VGGish
+# Если не загружена запустить только этот файл
+model = hub.load("sources/search/sources/model")
 
 # Функция для извлечения признаков из аудиофрагмента
 def extract_features(audio_path):
@@ -33,3 +36,10 @@ def find_most_similar_song(input_audio_path: str):
             best_song = song_name
 
     return best_song, max_similarity
+
+
+if __name__ == "__main__":
+    os.makedirs("sources/model", exist_ok=True)
+    model_url = "https://tfhub.dev/google/vggish/1"
+    model = hub.load(model_url)
+    tf.saved_model.save(model, "sources/model")

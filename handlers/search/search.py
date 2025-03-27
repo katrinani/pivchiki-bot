@@ -98,6 +98,7 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
 
     path = "sources/songs"
 
+    # TODO сделать редирект на добавление
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
@@ -135,7 +136,7 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     # сохранить в бд запрос и время запроса
     user_id = message.from_user.id
     save_search_history(user_id, nearest_song)
-
+    # TODO сделать редирект на добавление
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",

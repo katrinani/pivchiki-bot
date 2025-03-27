@@ -1,9 +1,10 @@
-from aiogram import F, types, Router, Bot
+from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import FSInputFile, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from states.states_recommendations import RecommendationsStates
+from sources.postgres.sql_requests import rebase_song_from_playlist
 
 router = Router()
 
@@ -235,18 +236,26 @@ async def handle_playlist(callback: types.CallbackQuery, state: FSMContext):
     songs = data["songs"]
     selected_song = songs[current_index]
 
-    #TODO сделать запрос к БД для добавление песни в плейлист
+    # сохранение в БД
+    rebase_song_from_playlist(song_name=selected_song, playlist_to_name="Избранное")
 
     await callback.answer(
-        text=f"«{selected_song}» добавлена в ваш плейлист!",
+        text=f"«{selected_song}» добавлена в плейлист Избранное!",
         show_alert=False
     )
 
 
 #обработчик лайков и дизлайков
 @router.callback_query(F.data.in_({"like", "dislike"}))
-async def handle_reaction(callback: types.CallbackQuery):
-    #TODO сделать запрос к БД который будет добавлять песню в плейлист
+async def handle_reaction(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    current_index = data["current_index"]
+    songs = data["songs"]
+    selected_song = songs[current_index]
+
+    # Сохранение в бд
+    rebase_song_from_playlist(song_name=selected_song, playlist_to_name="Избранное")
+
     reaction = "лайкнута" if callback.data == "like" else "дизлайкнута"
     await callback.answer(f"Песня {reaction}!", show_alert=False)
 

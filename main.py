@@ -8,7 +8,7 @@ from handlers.download import download
 from handlers.recommendations import  recommendations
 from handlers.playlists import playlists
 
-TOKEN = "5468648366:AAFN1A3VR-a_TDaKpnCEYezbpKqrqG7C8QA"
+TOKEN = "6401248215:AAHb1ieiU5malll9Hga3-eqTsQgwLCZjXow"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()

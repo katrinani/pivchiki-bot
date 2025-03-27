@@ -1,8 +1,14 @@
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from pyexpat.errors import messages
-from wsproto.events import Message
+
+from sources.postgres.sql_requests import (
+    rename_playlist,
+    delete_playlist,
+    remove_song_from_playlist,
+    create_playlist,
+    get_all_playlists
+)
 from states.states_playlists import PlaylistsStates
 
 router = Router()
@@ -15,6 +21,10 @@ playlists = {"playlist 1" : ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5"],
 #стартовое окно
 @router.message(F.text.endswith("Мои плейлисты"))
 async def start_recommendations(message: types.Message, state: FSMContext):
+    # запрос в БД
+    user_id = message.from_user.id
+    playlists = get_all_playlists(user_id)
+
     markup = InlineKeyboardBuilder()
 
     for name in playlists.keys():
@@ -48,6 +58,7 @@ async def playlist_menu(callback: types.CallbackQuery, state: FSMContext):
 
     songs = ""
     count = 0
+    # TODO достать из стейта плейлисты
     if len(playlists[name_playlist]) != 0:
         for name in playlists[name_playlist]:
             count += 1
@@ -87,26 +98,38 @@ async def rename(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(F.text, PlaylistsStates.rename)
 async def rename(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+
     data = await state.get_data()
     try:
-        playlists[message.text] = playlists.pop(str(data['name_playlist']))
+        ok = rename_playlist(data['name_playlist'], message.text, user_id)
+        if not ok:
+            await message.answer("Что-то пошло не так. Попробуйте еще раз позже")
+        else:
+            mes_text = f"Плейлист переименован на {message.text}"
+            await message.answer(text=mes_text)
     except KeyError:
         await message.answer(text="Такого плейлиста нет")
-    mes_text = f"Плейлист переименован на {message.text}"
-    await message.answer(text=mes_text)
+
     await state.set_state(PlaylistsStates.action)
 
 
 #удаление
 @router.callback_query(F.data == "delete", PlaylistsStates.wait_choose)
 async def rename(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.message.from_user.id
+
     data = await state.get_data()
     mes_text = f"Плейлист {data['name_playlist']} удален"
     try:
-        playlists.pop(str(data['name_playlist']))
+        ok = delete_playlist(data['name_playlist'], user_id)
+        if not ok:
+            await callback.message.answer("Что-то пошло не так. Попробуйте еще раз позже")
+        else:
+            await callback.message.edit_text(text=mes_text)
     except KeyError:
         await callback.message.edit_text(text="Такого плейлиста нет")
-    await callback.message.edit_text(text=mes_text)
+
     await state.set_state(PlaylistsStates.action)
 
 
@@ -120,19 +143,25 @@ async def rename(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(F.text, PlaylistsStates.edit_songs)
 async def rename(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
     data = await state.get_data()
     indexes = message.text.split(",")
     try:
-        # Сортируем индексы в обратном порядке
-        for i in sorted(indexes, reverse=True):
+        for i in indexes:
+            # TODO достать из стейта плейлисты
             if 0 <= int(i) < len(playlists[data['name_playlist']]):
-                del playlists[data['name_playlist']][int(i) - 1]
+                name_song = playlists[data['name_playlist']][int(i) - 1]
+                ok = remove_song_from_playlist(data['name_playlist'], user_id, name_song)
+                if not ok:
+                    await message.answer("При удалении что-то пошло не так, попробуйте еще раз позже")
+                else:
+                    mes_text = f"Песня(и) удалена(ы)"
+                    await message.answer(text=mes_text)
+
     except Exception as e:
         await message.answer(text=f"Ошибка:{e}")
         return
 
-    mes_text = f"Песня(и) удалена(ы)"
-    await message.answer(text=mes_text)
     await state.set_state(PlaylistsStates.action)
 
 
@@ -175,19 +204,23 @@ async def rename(callback: types.CallbackQuery, state: FSMContext):
 
     await state.set_state(PlaylistsStates.create_playlist)
 
+
 @router.message(F.text, PlaylistsStates.create_playlist)
 async def rename(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
     text = message.text
+    # TODO достать из стейта плейлисты
     if text not in playlists:
-        playlists[text] = []
+        ok = create_playlist(user_id, text)
+        if not ok:
+            await message.answer("Что-то пошло не так. Попробуйте еще раз позже")
+        else:
+            mes_text = f"Плейлист {message.text} создан"
+            await message.answer(text=mes_text)
     else:
         await message.answer(text="Такой плейлист уже существует")
         return
-    mes_text = f"Плейлист {message.text} создан"
-    await message.answer(text=mes_text)
     await state.set_state(PlaylistsStates.action)
-
-
 
 
 #прослушивание песен
@@ -207,6 +240,7 @@ async def listen_menu(callback: types.CallbackQuery, state: FSMContext):
     markup.adjust(1, 1)
 
     songs = ""
+    # TODO достать из стейта плейлисты
     for song in playlists[data['name_playlist']]:
         songs += f"\n{song}"
     await callback.message.edit_text(text=songs, reply_markup=markup.as_markup())
@@ -220,6 +254,7 @@ async def change_song(callback_query: types.CallbackQuery, state: FSMContext):
     order = callback_query.data
 
     # 1. Сохраняем исходный список в состоянии при первом вызове
+    # TODO достать из стейта плейлисты
     original_songs = data.get('original_list', playlists[data['name_playlist']])
     await state.update_data(original_list=original_songs)
 
@@ -306,4 +341,3 @@ async def navigate_pages(callback_query: types.CallbackQuery, state: FSMContext)
     songs_text = ("\n".join(current_songs) if current_songs else "Нет песен на этой странице.")
 
     await callback_query.message.edit_text(songs_text, reply_markup=markup.as_markup())
-

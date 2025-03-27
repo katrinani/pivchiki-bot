@@ -1,14 +1,12 @@
 import psycopg2
-
-from config import config_db
+# pip install psycopg2-binary
 
 conn = psycopg2.connect(
-    dbname=config_db["dbname"],
-    user=config_db["user"],
-    password=config_db["password"],
-    host=config_db["host"]
+    dbname="music",
+    user="postgres",
+    password="123456",
+    host="localhost"
 )
-
 
 def create_user(user_id: int):
     cursor = conn.cursor()
@@ -30,6 +28,11 @@ def create_user(user_id: int):
         return True
 
     except Exception as e:
+        if 'duplicate key value violates unique constraint "users_pkey"' in e.args[0]:
+            conn.rollback()
+            print("Успешная авторизация")
+            return True
+
         conn.rollback()
         print(f"Error creating user: {e}")
         return False
@@ -77,7 +80,7 @@ def get_history(user_id: int) ->  list[dict[str, str]]:
     """
     return history
 
-
+# TODO вытащить ссылки на песни
 def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     """
     Получение плейлистов и песен в нем конкретного пользователя
@@ -109,20 +112,21 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
 
 # TODO добавление mp3 в бд
 
-def rename_playlist(playlist_id: int, new_name: str):
+def rename_playlist(playlist_name: str, new_name: str, user_id: int):
     """
-    Переименовывает плейлист
-    :return: True если успешно, False если ошибка
+    Переименовывает плейлист конкретного пользователя
+    :return: True если успешно, False если ошибка или плейлист не найден
     """
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN;")
+        # Обновляем только плейлист с указанным именем и user_id
         cursor.execute(
-            "UPDATE Playlists SET Name = %s WHERE PlaylistId = %s",
-            (new_name, playlist_id)
+            "UPDATE Playlists SET Name = %s WHERE Name = %s AND UserId = %s",
+            (new_name, playlist_name, user_id)
         )
 
-        if cursor.rowcount != 1: # Проверяем что обновили именно 1 запись
+        if cursor.rowcount != 1:  # Проверяем что обновили именно 1 запись
             return False
 
         conn.commit()
@@ -163,19 +167,21 @@ def create_playlist(user_id: int, playlist_name: str):
         cursor.close()
 
 
-def delete_playlist(playlist_id: int):
+def delete_playlist(playlist_name: str, user_id: int):
     """
-    Удаляет плейлист (каскадно удалит все связи с треками)
-    :return: True если успешно, False если ошибка
+    Удаляет плейлист конкретного пользователя по названию (каскадно удалит все связи с треками)
+    :return: True если успешно, False если ошибка или плейлист не найден
     """
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN;")
+        # Удаляем только плейлист с указанным именем и user_id
         cursor.execute(
-            "DELETE FROM Playlists WHERE PlaylistId = %s",
-            (playlist_id,)
+            "DELETE FROM Playlists WHERE Name = %s AND UserId = %s",
+            (playlist_name, user_id)
         )
-        if cursor.rowcount != 1:
+
+        if cursor.rowcount != 1:  # Проверяем что удалили именно 1 запись
             return False
 
         conn.commit()
@@ -189,28 +195,47 @@ def delete_playlist(playlist_id: int):
         cursor.close()
 
 
-def remove_song_from_playlist(track_id: int, playlist_id: int):
+def remove_song_from_playlist(playlist_name: str, user_id: int, song_name: str):
     """
-    Удаляет трек из указанного плейлиста
-    :return: True если удаление успешно, False если ошибка
+    Удаляет песню по названию из плейлиста пользователя
+    :return: True если успешно, False если ошибка или песня/плейлист не найдены
     """
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN;")
 
-        # Проверяем существование связи перед удалением
+        # 1. Находим ID плейлиста по имени и пользователю
         cursor.execute(
-            "SELECT 1 FROM PlaylistTracks WHERE TrackId = %s AND PlaylistId = %s",
-            (track_id, playlist_id)
+            "SELECT PlaylistId FROM Playlists WHERE Name = %s AND UserId = %s",
+            (playlist_name, user_id)
         )
-        if not cursor.fetchone():
-            return False  # Связи не существует
+        playlist = cursor.fetchone()
 
-        # Удаляем трек из плейлиста
+        if not playlist:
+            return False  # Плейлист не найден
+
+        playlist_id = playlist[0]
+
+        # 2. Находим ID трека по названию песни
         cursor.execute(
-            "DELETE FROM PlaylistTracks WHERE TrackId = %s AND PlaylistId = %s",
-            (track_id, playlist_id)
+            "SELECT TrackId FROM Tracks WHERE Name = %s",
+            (song_name,)
         )
+        track = cursor.fetchone()
+
+        if not track:
+            return False  # Трек не найден
+
+        track_id = track[0]
+
+        # 3. Удаляем связь между плейлистом и треком
+        cursor.execute(
+            "DELETE FROM PlaylistTracks WHERE PlaylistId = %s AND TrackId = %s",
+            (playlist_id, track_id)
+        )
+
+        if cursor.rowcount != 1:
+            return False  # Связь не найдена
 
         conn.commit()
         return True
@@ -223,31 +248,43 @@ def remove_song_from_playlist(track_id: int, playlist_id: int):
         cursor.close()
 
 
-def rebase_song_from_playlist(id_song: int, id_playlist_to: int = None, id_playlist_from: int = None):
+def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, playlist_from_name: str = None):
     """
-    Функция для добавления песни в плейлист(если задан id_playlist_to)
-    или переноса песни из одного плейлиста в другой (если заданы id_playlist_to, id_playlist_from)
+    Функция для добавления песни в плейлист (если задан playlist_to_name)
+    или переноса песни из одного плейлиста в другой (если заданы playlist_to_name, playlist_from_name)
+    по названиям песни и плейлистов.
     :return: True/False в зависимости от того как прошла операция
     """
-    if not id_playlist_to:
+    if not playlist_to_name:
         return False
 
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN;")
 
-        cursor.execute("SELECT 1 FROM Tracks WHERE TrackId = %s", (id_song,))
-        if not cursor.fetchone():
+        # Получаем ID песни по названию
+        cursor.execute("SELECT TrackId FROM Tracks WHERE Song = %s", (song_name,))
+        song_result = cursor.fetchone()
+        if not song_result:
             return False
-        cursor.execute("SELECT 1 FROM Playlists WHERE PlaylistId = %s", (id_playlist_to,))
-        if not cursor.fetchone():
+        id_song = song_result[0]
+
+        # Получаем ID целевого плейлиста по названию
+        cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s", (playlist_to_name,))
+        playlist_to_result = cursor.fetchone()
+        if not playlist_to_result:
             return False
+        id_playlist_to = playlist_to_result[0]
 
-
-        if id_playlist_from:
-            cursor.execute("SELECT 1 FROM Playlists WHERE PlaylistId = %s", (id_playlist_from,))
-            if not cursor.fetchone():
+        if playlist_from_name:
+            # Получаем ID исходного плейлиста по названию
+            cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s", (playlist_from_name,))
+            playlist_from_result = cursor.fetchone()
+            if not playlist_from_result:
                 return False
+            id_playlist_from = playlist_from_result[0]
+
+            # Проверяем, есть ли песня в исходном плейлисте
             cursor.execute(
                 "SELECT 1 FROM PlaylistTracks WHERE TrackId = %s AND PlaylistId = %s",
                 (id_song, id_playlist_from))
@@ -275,3 +312,143 @@ def rebase_song_from_playlist(id_song: int, id_playlist_to: int = None, id_playl
         return False
     finally:
         cursor.close()
+
+
+"""
+-- Таблица пользователей
+CREATE TABLE Users (
+    UserId SERIAL PRIMARY KEY
+);
+
+-- Таблица исполнителей
+CREATE TABLE Artists (
+    ArtistId SERIAL PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL
+);
+
+-- Таблица жанров
+CREATE TABLE Genres (
+    GenreId SERIAL PRIMARY KEY,
+    GenreName VARCHAR(255) NOT NULL
+);
+
+-- Таблица альбомов
+CREATE TABLE Albums (
+    AlbumId SERIAL PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    Year DATE
+);
+
+-- Таблица треков (добавлено поле Lyrics)
+CREATE TABLE Tracks (
+    TrackId SERIAL PRIMARY KEY,
+    Song TEXT,  -- Хранит ссылку на песню
+    Lyrics TEXT,	-- Добавлено поле для хранения текста песни
+	Name VARCHAR(255),
+    ArtistId INT,
+	Name VARCHAR(255),
+    AlbumId INT,
+    Year DATE,
+    Language TEXT,
+    Features REAL[],
+    SVDFeatures REAL[],
+	EmotionVector REAL[],
+    PhysicalSimilarTracksIds INT[],
+    TextSimilarTracksIds INT[],
+    CollaborationSimilarTracksIds INT[],
+    FOREIGN KEY (ArtistId) REFERENCES Artists(ArtistId) ON DELETE CASCADE,
+    FOREIGN KEY (AlbumId) REFERENCES Albums(AlbumId) ON DELETE CASCADE
+);
+
+-- Таблица плейлистов
+CREATE TABLE Playlists (
+    PlaylistId SERIAL PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    UserId INT,
+    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+);
+
+-- Таблица истории прослушиваний
+CREATE TABLE History (
+    HistoryId SERIAL PRIMARY KEY,
+    UserId INT,
+    TrackId INT,
+	rating INT DEFAULT 0,
+    ListeningDate DATE,
+    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
+    FOREIGN KEY (TrackId) REFERENCES Tracks(TrackId) ON DELETE CASCADE
+);
+
+-- Таблица связей треков и жанров
+CREATE TABLE TrackGenres (
+    TrackId INT,
+    GenreId INT,
+    PRIMARY KEY (TrackId, GenreId),
+    FOREIGN KEY (TrackId) REFERENCES Tracks(TrackId) ON DELETE CASCADE,
+    FOREIGN KEY (GenreId) REFERENCES Genres(GenreId) ON DELETE CASCADE
+);
+
+-- Таблица связей альбомов и жанров
+CREATE TABLE AlbumGenres (
+    AlbumId INT,
+    GenreId INT,
+    PRIMARY KEY (AlbumId, GenreId),
+    FOREIGN KEY (AlbumId) REFERENCES Albums(AlbumId) ON DELETE CASCADE,
+    FOREIGN KEY (GenreId) REFERENCES Genres(GenreId) ON DELETE CASCADE
+);
+
+-- Таблица связей артистов и жанров
+CREATE TABLE ArtistGenres (
+    ArtistId INT,
+    GenreId INT,
+    PRIMARY KEY (ArtistId, GenreId),
+    FOREIGN KEY (ArtistId) REFERENCES Artists(ArtistId) ON DELETE CASCADE,
+    FOREIGN KEY (GenreId) REFERENCES Genres(GenreId) ON DELETE CASCADE
+);
+
+-- Таблица связей альбомов и артистов
+CREATE TABLE AlbumArtists (
+    AlbumId INT,
+    ArtistId INT,
+    PRIMARY KEY (AlbumId, ArtistId),
+    FOREIGN KEY (AlbumId) REFERENCES Albums(AlbumId) ON DELETE CASCADE,
+    FOREIGN KEY (ArtistId) REFERENCES Artists(ArtistId) ON DELETE CASCADE
+);
+
+-- Таблица связей плейлистов и треков
+CREATE TABLE PlaylistTracks (
+    PlaylistId INT,
+    TrackId INT,
+    PRIMARY KEY (PlaylistId, TrackId),
+    FOREIGN KEY (PlaylistId) REFERENCES Playlists(PlaylistId) ON DELETE CASCADE,
+    FOREIGN KEY (TrackId) REFERENCES Tracks(TrackId) ON DELETE CASCADE
+);
+
+-- Таблица связей пользователей и альбомов
+CREATE TABLE UserAlbums (
+    UserId INT,
+    AlbumId INT,
+    PRIMARY KEY (UserId, AlbumId),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
+    FOREIGN KEY (AlbumId) REFERENCES Albums(AlbumId) ON DELETE CASCADE
+);
+
+-- Таблица связей пользователей и любимых исполнителей
+CREATE TABLE UserFavoriteArtists (
+    UserId INT,
+    ArtistId INT,
+    PRIMARY KEY (UserId, ArtistId),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
+    FOREIGN KEY (ArtistId) REFERENCES Artists(ArtistId) ON DELETE CASCADE
+);
+
+-- Таблица связей пользователей и истории прослушиваний
+CREATE TABLE UserHistory (
+    UserId INT,
+    HistoryId INT,
+    PRIMARY KEY (UserId, HistoryId),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
+    FOREIGN KEY (HistoryId) REFERENCES History(HistoryId) ON DELETE CASCADE
+);
+
+"""
