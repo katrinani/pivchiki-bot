@@ -1,4 +1,7 @@
 import psycopg2
+
+from sources.search.search import extract_features, to_svd
+
 # pip install psycopg2-binary
 
 conn = psycopg2.connect(
@@ -110,7 +113,36 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     return playlists
 
 
-# TODO добавление mp3 в бд
+async def save_mp3(path: str, name: str):
+    # создаем вектор VGGish
+    features: list[float] = extract_features(path).tolist()
+    # создаем svd
+    svd_features = to_svd(features)
+
+    query = """
+        INSERT INTO Tracks (Song, Name, Features, SVDFeatures)
+        VALUES ($1, $2, $3, $4)
+        RETURNING TrackId;
+        """
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN;")
+        cursor.execute(query, (path, name, features, svd_features))
+
+        if cursor.rowcount != 1:
+            return False
+
+        conn.commit()
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting playlist: {e}")
+        return False
+    finally:
+        cursor.close()
+
 
 def rename_playlist(playlist_name: str, new_name: str, user_id: int):
     """

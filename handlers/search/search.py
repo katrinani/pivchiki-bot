@@ -12,7 +12,6 @@ from sources.parsers.YouTubeBomber import find_in_youtube, download_song
 # методы бд
 from sources.postgres.sql_requests import save_search_history
 
-
 router = Router()
 
 
@@ -41,7 +40,15 @@ async def start_search(message: types.Message, state: FSMContext):
 @router.callback_query(F.data == "text", SearchStates.choose_method)
 async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
     mes_text = "Принято! Тогда введите свой запрос. Укажите название песни и/или автора:"
-    await callback.message.edit_text(text=mes_text)
+
+    markup = InlineKeyboardBuilder()
+    cansel = types.InlineKeyboardButton(
+        text="Отменить поиск",
+        callback_data="cansel"
+    )
+    markup.add(cansel)
+
+    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(SearchStates.wait_info_about_song)
 
 
@@ -73,8 +80,13 @@ async def request_processing(message: types.Message, state: FSMContext):
             callback_data=f"song_{i + 1}"
         )
         markup.add(btn)
+    cansel = types.InlineKeyboardButton(
+        text="Отменить поиск",
+        callback_data="cansel"
+    )
+    markup.add(cansel)
 
-    markup.adjust(5, 5)
+    markup.adjust(5, 5, 1)
 
     data = await state.get_data()
     await message.bot.edit_message_text(
@@ -84,6 +96,12 @@ async def request_processing(message: types.Message, state: FSMContext):
         reply_markup=markup.as_markup()
     )
     await state.set_state(SearchStates.send_song)
+
+
+@router.callback_query(F.data == "cansel")
+async def cansel_search(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Отменяю поиск.")
+    await state.clear()
 
 
 @router.callback_query(
