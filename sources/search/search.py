@@ -6,6 +6,8 @@ import librosa
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics.pairwise import cosine_similarity
 
+from sources.postgres.sql_requests import get_features
+
 # Загрузка модели VGGish
 # Если не загружена запустить только этот файл
 model = hub.load("sources/search/sources/model")
@@ -29,9 +31,9 @@ def extract_features(audio_path) -> np.ndarray:
 # Функция для поиска наиболее похожей песни
 def find_most_similar_song(input_audio_path: str):
     input_features = extract_features(input_audio_path)
-    # TODO запрос на фичи из бд
+
     # Достаем словарь где ключ - имя песни, значение - вектора VGGish
-    database_features : dict[str: list[float]] = {}
+    database_features : dict[str: list[float]] = get_features()
 
     max_similarity = -1
     best_song = None

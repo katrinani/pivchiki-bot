@@ -44,10 +44,21 @@ def create_user(user_id: int):
         cursor.close()
 
 
+def get_features():
+    cursor = conn.cursor()
+    sql = """
+    SELECT Name, Features FROM Tracks WHERE Features IS NOT NULL;
+    """
+    cursor.execute(sql)
+    features_dict = {row[0]: row[1] for row in cursor.fetchall()}
+    cursor.close()
+    return features_dict
+
+
 def save_search_history(user_id: int, track_name: str):
     cursor = conn.cursor()
     sql = """
-    INSERT INTO History (UserId, TrackId, ListeningDate) VALUES (%d, (SELECT TrackId FROM Tracks WHERE Song = %s), NOW())
+    INSERT INTO History (UserId, TrackId, ListeningDate) VALUES (%s, (SELECT TrackId FROM Tracks WHERE Song = %s), NOW())
     """
     cursor.execute(sql, (user_id, track_name, ))
     conn.commit()
@@ -121,25 +132,28 @@ async def save_mp3(path: str, name: str):
 
     query = """
         INSERT INTO Tracks (Song, Name, Features, SVDFeatures)
-        VALUES ($1, $2, $3, $4)
+        VALUES (%s, %s, %s, %s)
         RETURNING TrackId;
-        """
+    """
 
     cursor = conn.cursor()
     try:
-        cursor.execute("BEGIN;")
         cursor.execute(query, (path, name, features, svd_features))
 
         if cursor.rowcount != 1:
-            return False
+            return False  # или можно вызвать исключение
+
+        # Получаем TrackId из результата запроса
+        track_id = cursor.fetchone()[0]
 
         conn.commit()
-        return True
+        return track_id, True
 
     except Exception as e:
         conn.rollback()
-        print(f"Error deleting playlist: {e}")
-        return False
+        print(f"Ошибка при сохранении трека: {e}")
+        return 0, False  # или можно вызвать исключение
+
     finally:
         cursor.close()
 

@@ -2,7 +2,7 @@ from aiogram import F, types, Router, Bot
 from aiogram.fsm.context import FSMContext
 import os
 
-from sources.postgres.sql_requests import save_mp3
+from sources.postgres.sql_requests import save_mp3, rebase_song_from_playlist
 from states.states_download import DownloadStates
 
 router = Router()
@@ -26,18 +26,26 @@ async def load_song(message: types.Message, state: FSMContext, bot: Bot):
     # Проверяем существование файла
     if os.path.exists(file_path):
         print(f"Файл {file_path} уже существует!")
+        mes_text = f"Песня {message.audio.file_name} успешно загружена"
+        await message.answer(text=mes_text)
+        await state.clear()
+        return
     else:
         # Файла нет, можно скачивать
         await bot.download(message.audio.file_id, destination=file_path)
 
 
     # сохранение в бд
-    ok = await save_mp3(file_path, message.audio.file_name)
+    song_id, ok = await save_mp3(file_path, message.audio.file_name)
     if not ok:
         await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
     else:
-        mes_text = f"Песня {message.audio.file_name} успешно загружена в плейлист 'Избранное'"
-        await message.answer(text=mes_text)
+        ok = rebase_song_from_playlist(message.audio.file_name, "Избранное")
+        if not ok:
+            await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
+        else:
+            mes_text = f"Песня {message.audio.file_name} успешно загружена в плейлист 'Избранное'"
+            await message.answer(text=mes_text)
 
     await state.clear()
 
