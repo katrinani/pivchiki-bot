@@ -2,9 +2,9 @@ import psycopg2
 # pip install psycopg2-binary
 
 conn = psycopg2.connect(
-    dbname="music",
+    dbname="music_db1",
     user="postgres",
-    password="123456",
+    password="postgres",
     host="localhost"
 )
 
