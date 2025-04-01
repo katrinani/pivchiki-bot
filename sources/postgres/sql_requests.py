@@ -1,7 +1,5 @@
 import psycopg2
 
-from sources.search.search import extract_features, to_svd
-
 # pip install psycopg2-binary
 
 conn = psycopg2.connect(
@@ -58,7 +56,7 @@ def get_features():
 def save_search_history(user_id: int, track_name: str):
     cursor = conn.cursor()
     sql = """
-    INSERT INTO History (UserId, TrackId, ListeningDate) VALUES (%s, (SELECT TrackId FROM Tracks WHERE Song = %s), NOW())
+    INSERT INTO History (UserId, TrackId, ListeningDate) VALUES (%s, (SELECT TrackId FROM Tracks WHERE Name = %s), NOW())
     """
     cursor.execute(sql, (user_id, track_name, ))
     conn.commit()
@@ -68,10 +66,9 @@ def save_search_history(user_id: int, track_name: str):
 def get_history(user_id: int) ->  list[dict[str, str]]:
     cursor = conn.cursor()
     sql = """
-    SELECT h.ListeningDate, t.Song, a.Name
+    SELECT h.ListeningDate, t.Name
     FROM History h
     JOIN Tracks t ON h.TrackId = t.TrackId
-    JOIN Artists a ON t.ArtistId = a.ArtistId
     WHERE h.UserId = %s
     ORDER BY h.ListeningDate DESC
     """
@@ -80,9 +77,8 @@ def get_history(user_id: int) ->  list[dict[str, str]]:
     history = []
     for record in cursor.fetchall():
         history.append({
-            "date": record[0].strftime("%d.%m.%Y"),  # Форматированная дата
+            "date": record[0],  # Форматированная дата
             "song": record[1],  # Название песни
-            "artist": record[2]  # Имя исполнителя
         })
 
     cursor.close()
@@ -124,12 +120,7 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     return playlists
 
 
-async def save_mp3(path: str, name: str):
-    # создаем вектор VGGish
-    features: list[float] = extract_features(path).tolist()
-    # создаем svd
-    svd_features = to_svd(features)
-
+async def save_mp3(path: str, name: str, features: list[float], svd_features: list[float]):
     query = """
         INSERT INTO Tracks (Song, Name, Features, SVDFeatures)
         VALUES (%s, %s, %s, %s)
@@ -309,7 +300,7 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
         cursor.execute("BEGIN;")
 
         # Получаем ID песни по названию
-        cursor.execute("SELECT TrackId FROM Tracks WHERE Song = %s", (song_name,))
+        cursor.execute("SELECT TrackId FROM Tracks WHERE Name = %s", (song_name,))
         song_result = cursor.fetchone()
         if not song_result:
             return False

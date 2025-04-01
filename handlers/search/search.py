@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sources.search.search import find_most_similar_song
+from sources.search.search import find_most_similar_song, extract_features, to_svd
 # импортируем статусы
 from states.states_search import SearchStates
 # парсер из ютуба
@@ -116,12 +116,12 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
     result = data["result"]
 
     path = "sources/songs"
+    name = result[int(callback.data[-1]) - 1]
 
-    # TODO сделать редирект на добавление
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data="add_song"
+        callback_data=f"add_song:{name}"
     ))
 
     answer = download_song(int(callback.data[-1]), result, path)
@@ -129,7 +129,7 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
         return
 
-    name = result[int(callback.data[-1]) - 1]
+
     path_with_song = answer[1]
 
     # Проверяем существование файла
@@ -141,8 +141,18 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
         # сохраняем имя песни
         await state.update_data({"song_name": file.filename})
 
+        # создаем вектор VGGish
+        features: list[float] = extract_features(path_with_song).tolist()
+        # создаем svd
+        svd_features: list[float] = to_svd(features)
+
         # сохранение в бд
-        song_id, ok = await save_mp3(path_with_song, file.filename)
+        song_id, ok = await save_mp3(
+            path_with_song,
+            file.filename,
+            features,
+            svd_features
+        )
         if not ok:
             await callback.message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
         else:
@@ -167,30 +177,29 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
 
     nearest_song, max_similarity = find_most_similar_song(file_path)
     path = f"sources/songs/{nearest_song}"
+    if nearest_song == "":
+        text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
+        await message.answer(text=text)
+        await state.clear()
 
     # сохранить в бд запрос и время запроса
     user_id = message.from_user.id
     save_search_history(user_id, nearest_song)
-    # TODO сделать редирект на добавление
+
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data="add_song"
+        callback_data=f"add_song:{nearest_song}"
     ))
 
-    if max_similarity > 0.5:
-        file = FSInputFile(path)
-        mes_text = f"Я нашел:\n{nearest_song}"
-        await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
-        remove(file_path)
-        # сохраняем имя песни
-        await state.update_data({"song_name": file.filename})
+    file = FSInputFile(path)
+    mes_text = f"Я нашел:\n{nearest_song}"
+    await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
+    remove(file_path)
+    # сохраняем имя песни
+    await state.update_data({"song_name": file.filename})
+    await state.clear()
 
-        await state.clear()
-    else:
-        text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
-        await message.answer(text=text)
-        await state.clear()
 
 
 @router.message(SearchStates.wait_audio)
@@ -200,14 +209,13 @@ async def voice_processing(message: types.Message, state: FSMContext):
     await state.set_state(SearchStates.wait_audio)
 
 
-@router.callback_query(F.data == "add_song")
+@router.callback_query(F.data.startswith("add_song:"))
 async def add_new_song(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    name = data["song_name"]
+    song_name = callback.data.split(":")[1]
 
-    ok = rebase_song_from_playlist(name, "Избранное")
+    ok = rebase_song_from_playlist(song_name, "Избранное")
     if not ok:
         await callback.message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
     else:
-        mes_text = f"Песня {name} успешно загружена в плейлист 'Избранное'"
+        mes_text = f"Песня {song_name} успешно загружена в плейлист 'Избранное'"
         await callback.message.answer(text=mes_text)
