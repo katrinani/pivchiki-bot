@@ -1,3 +1,4 @@
+import os
 from os import remove
 from aiogram import F, types, Router, Bot
 from aiogram.fsm.context import FSMContext
@@ -105,13 +106,17 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
         callback_data="add_song"
     ))
 
-    answer = download_song(int(callback.data[-1]), result, path)
-    if not answer[0]:
+    success, track_data = download_song(result, int(callback.data[-1]), path)
+
+    if not success:
         await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
         return
 
-    path_with_song = answer[1]
-    file = FSInputFile(path_with_song)
+    # Формируем путь к файлу (как это делается в download_song)
+    filename = os.path.join(path, f"{track_data['title']}.mp3")
+    mp3_path = f"{filename}.mp3"
+
+    file = FSInputFile(mp3_path)
     await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
 

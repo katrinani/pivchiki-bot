@@ -1,11 +1,11 @@
 import psycopg2
-# pip install psycopg2-binary
+from .config import config_db
 
 conn = psycopg2.connect(
-    dbname="music",
-    user="postgres",
-    password="123456",
-    host="localhost"
+    dbname=config_db["dbname"],
+    user=config_db["user"],
+    password=config_db["password"],
+    host=config_db["host"]
 )
 
 def create_user(user_id: int):
@@ -42,43 +42,68 @@ def create_user(user_id: int):
 
 
 def save_search_history(user_id: int, track_name: str):
-    cursor = conn.cursor()
-    sql = """
-    INSERT INTO History (UserId, TrackId, ListeningDate) VALUES (%d, (SELECT TrackId FROM Tracks WHERE Song = %s), NOW())
-    """
-    cursor.execute(sql, (user_id, track_name, ))
-    conn.commit()
-    cursor.close()
+    """Save user search history to database"""
+    try:
+        with conn.cursor() as cursor:
+            # Insert search history record
+            cursor.execute("""
+                INSERT INTO history (
+                    userid, 
+                    trackname,
+                    listeningdate
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    NOW()
+                )
+            """, (
+                user_id,
+                track_name
+            ))
+
+            conn.commit()
+
+    except Exception as e:
+        print(f"Error saving search history: {e}")
+        conn.rollback()
+        raise
 
 
-def get_history(user_id: int) ->  list[dict[str, str]]:
-    cursor = conn.cursor()
-    sql = """
-    SELECT h.ListeningDate, t.Song, a.Name
-    FROM History h
-    JOIN Tracks t ON h.TrackId = t.TrackId
-    JOIN Artists a ON t.ArtistId = a.ArtistId
-    WHERE h.UserId = %s
-    ORDER BY h.ListeningDate DESC
-    """
-    cursor.execute(sql, (user_id,))
+def get_history(user_id: int) -> list[dict[str, str]]:
+    """Get user search history from database"""
+    try:
+        with conn.cursor() as cursor:
+            # Get search history records
+            cursor.execute("""
+                            SELECT 
+                                trackname,
+                                listeningdate
+                            FROM 
+                                history
+                            WHERE 
+                                userid = %s
+                            ORDER BY 
+                                listeningdate DESC
+                        """, (user_id,))
 
-    history = []
-    for record in cursor.fetchall():
-        history.append({
-            "date": record[0].strftime("%d.%m.%Y"),  # Форматированная дата
-            "song": record[1],  # Название песни
-            "artist": record[2]  # Имя исполнителя
-        })
+            history = []
+            for track_name, listening_date in cursor.fetchall():
+                # Двойная проверка на случай, если проверка в SQL не сработала
+                if listening_date is None:
+                    continue
 
-    cursor.close()
-    """ history
-    [
-    {"date": "15.05.2023", "song": "Bohemian Rhapsody", "artist": "Queen"},
-    {"date": "14.05.2023", "song": "Imagine", "artist": "John Lennon"}
-    ]
-    """
-    return history
+                history.append({
+                    "date": listening_date.strftime("%d.%m.%Y"),
+                    "song": track_name if track_name else "Без названия"
+                })
+
+            return history
+
+    except Exception as e:
+        print(f"Error fetching search history: {e}")
+        raise
+
 
 # TODO вытащить ссылки на песни
 def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
@@ -313,7 +338,41 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
     finally:
         cursor.close()
 
+def save_song_to_db(title, file_path, lyrics, language, text_vector, text_llm_vector, features):
+    """Save song information to tracks and artists tables"""
+    try:
+        with conn.cursor() as cursor:
 
+            cursor.execute("""
+                INSERT INTO tracks (
+                    song,
+                    trackid,
+                    name,
+                    lyrics, 
+                    language,
+                    textvector,
+                    textllmvector,
+                    features
+                )
+                VALUES (%s, DEFAULT, %s, %s, %s, %s, %s, %s)
+                RETURNING trackid
+            """, (
+                file_path,
+                title,
+                lyrics,
+                language,
+                text_vector,
+                text_llm_vector,
+                features
+            ))
+
+
+            conn.commit()
+
+    except Exception as e:
+        print(f"Ошибка при сохранении в базу данных: {e}")
+        conn.rollback()
+        raise
 """
 -- Таблица пользователей
 CREATE TABLE Users (
