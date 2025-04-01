@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Загрузка модели VGGish
 # Если не загружена запустить только этот файл
-model = hub.load("sources/search/sources/model")
+model = hub.load("https://tfhub.dev/google/vggish/1")
 
 # Функция для извлечения признаков из аудиофрагмента
 def extract_features(audio_path):
