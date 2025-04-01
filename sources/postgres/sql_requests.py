@@ -216,7 +216,7 @@ def create_playlist(user_id: int, playlist_name: str):
 
         # Создаем плейлист и возвращаем его ID
         cursor.execute(
-            "INSERT INTO Playlists (Name, UserId) VALUES (%s, %s)",
+            "INSERT INTO Playlists (Name, UserId) VALUES (%s, %s) RETURNING playlistid;",
             (playlist_name, user_id)
         )
 

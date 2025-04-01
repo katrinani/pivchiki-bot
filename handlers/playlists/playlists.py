@@ -7,15 +7,11 @@ from sources.postgres.sql_requests import (
     delete_playlist,
     remove_song_from_playlist,
     create_playlist,
-    get_all_playlists
+    get_all_playlists, rebase_song_from_playlist
 )
 from states.states_playlists import PlaylistsStates
 
 router = Router()
-
-playlists = {"playlist 1" : ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5"],
-                  "playlist 2": ["Song 6", "Song 7", "Song 8", "Song 9", "Song 10"],
-                  "playlist 3": ["Song 11", "Song 12", "Song 13", "Song 14", "Song 15"]}
 
 
 #стартовое окно
@@ -25,21 +21,62 @@ async def start_recommendations(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     playlists = get_all_playlists(user_id)
 
-    markup = InlineKeyboardBuilder()
+    await state.update_data(playlists=playlists)
 
+    markup = InlineKeyboardBuilder()
+    create = types.InlineKeyboardButton(
+        text="➕ Создать плейлист",
+        callback_data="create"
+    )
+    markup.add(create)
     for name in playlists.keys():
         markup.add(types.InlineKeyboardButton(text = str(name), callback_data= str(name)))
     markup.adjust(1, 1)
+
 
     sent_message = await message.answer(text="Ваши плейлисты:", reply_markup=markup.as_markup())
     await state.update_data(last_message_id=sent_message.message_id)
     await state.set_state(PlaylistsStates.choose_playlist)
 
 
+#создание плейлиста
+@router.callback_query(F.data == "create", PlaylistsStates.choose_playlist)
+async def create(callback: types.CallbackQuery, state: FSMContext):
+    mes_text = "Напишите название плейлиста"
+    await callback.message.edit_text(text=mes_text)
+
+    await state.set_state(PlaylistsStates.create_playlist)
+
+
+@router.message(F.text, PlaylistsStates.create_playlist)
+async def create(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    text = message.text
+    data = await state.get_data()
+    playlists = data['playlists']
+    if text not in playlists:
+        ok = create_playlist(user_id, text)
+        if not ok:
+            await message.answer("Что-то пошло не так. Попробуйте еще раз позже")
+        else:
+            mes_text = f"Плейлист {message.text} создан"
+            await message.answer(text=mes_text)
+    else:
+        await message.answer(text="Такой плейлист уже существует")
+        return
+    await state.set_state(PlaylistsStates.action)
+
+
 @router.callback_query(PlaylistsStates.choose_playlist)
 async def playlist_menu(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data == 'create':
+        return
+
     name_playlist = callback.data
     await state.update_data(name_playlist=name_playlist)
+    data = await state.get_data()
+    playlists = data['playlists']
+
     markup = InlineKeyboardBuilder()
     listen = types.InlineKeyboardButton(
         text="🎧 Прослушать плейлист",
@@ -49,16 +86,11 @@ async def playlist_menu(callback: types.CallbackQuery, state: FSMContext):
         text="✏️ Редактировать плейлист",
         callback_data="edit"
     )
-    create = types.InlineKeyboardButton(
-        text="➕ Создать плейлист",
-        callback_data="create"
-    )
-    markup.add(listen, edit, create )
+    markup.add(listen, edit,)
     markup.adjust(1, 1)
 
     songs = ""
     count = 0
-    # TODO достать из стейта плейлисты
     if len(playlists[name_playlist]) != 0:
         for name in playlists[name_playlist]:
             count += 1
@@ -68,24 +100,33 @@ async def playlist_menu(callback: types.CallbackQuery, state: FSMContext):
     else:
         await callback.message.edit_text(text=f"Плейлист пуст")
 
+
+
+
 #редактирование
 @router.callback_query(F.data == "edit", PlaylistsStates.choose_action)
 async def edit_menu(callback: types.CallbackQuery, state: FSMContext):
     markup = InlineKeyboardBuilder()
+    data = await state.get_data()
     rename = types.InlineKeyboardButton(
         text="✏️ Изменить название",
         callback_data="rename"
-    )
-    delete = types.InlineKeyboardButton(
-        text="🗑️ Удалить плейлист",
-        callback_data="delete"
     )
     edit_songs = types.InlineKeyboardButton(
         text="🎵 Редактировать песни",
         callback_data="edit_songs"
     )
-    markup.add(rename, edit_songs, delete)
+    markup.add(rename, edit_songs)
     markup.adjust(1, 1)
+
+    #Базовый плейлист нельзя удалить
+    if data['name_playlist'] != 'Избранное':
+        delete = types.InlineKeyboardButton(
+            text="🗑️ Удалить плейлист",
+            callback_data="delete"
+        )
+        markup.add(delete)
+
     await callback.message.edit_text(text="Выбирете функцию", reply_markup=markup.as_markup())
     await state.set_state(PlaylistsStates.wait_choose)
 
@@ -114,9 +155,9 @@ async def rename(message: types.Message, state: FSMContext):
     await state.set_state(PlaylistsStates.action)
 
 
-#удаление
+#удаление плейлиста
 @router.callback_query(F.data == "delete", PlaylistsStates.wait_choose)
-async def rename(callback: types.CallbackQuery, state: FSMContext):
+async def delete(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.message.from_user.id
 
     data = await state.get_data()
@@ -135,20 +176,33 @@ async def rename(callback: types.CallbackQuery, state: FSMContext):
 
 #редактрование песен
 @router.callback_query(F.data == "edit_songs", PlaylistsStates.wait_choose)
-async def rename(callback: types.CallbackQuery, state: FSMContext):
-    mes_text = "Напишите индекс(ы) песни(песен) для удаления ЧЕРЕЗ ЗАПЯТУЮ"
-    await callback.message.edit_text(text=mes_text)
+async def edit_songs(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    name_playlist = data['name_playlist']
+    markup = InlineKeyboardBuilder()
+    delete_songs = types.InlineKeyboardButton(
+        text="🗑️ Удалить песни",
+        callback_data="delete_songs"
+    )
+    rebase_song = types.InlineKeyboardButton(
+        text="🎵 Переместить песни",
+        callback_data="rebase_song"
+    )
+    markup.add(delete_songs, rebase_song)
+    markup.adjust(1, 1)
+    await callback.message.edit_text(text=f"Выберите действие над плейлистом {name_playlist}", markup = markup.as_markup())
     await state.set_state(PlaylistsStates.edit_songs)
 
 
-@router.message(F.text, PlaylistsStates.edit_songs)
-async def rename(message: types.Message, state: FSMContext):
+#удаление песни
+@router.callback_query(F.data == "delete_songs", PlaylistsStates.edit_songs)
+async def delete_songs(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     data = await state.get_data()
+    playlists = data['playlists']
     indexes = message.text.split(",")
     try:
         for i in indexes:
-            # TODO достать из стейта плейлисты
             if 0 <= int(i) < len(playlists[data['name_playlist']]):
                 name_song = playlists[data['name_playlist']][int(i) - 1]
                 ok = remove_song_from_playlist(data['name_playlist'], user_id, name_song)
@@ -165,68 +219,60 @@ async def rename(message: types.Message, state: FSMContext):
     await state.set_state(PlaylistsStates.action)
 
 
-#функция удаления
-def safe_delete_elements(original: list, indexes: list) -> list:
-    """Безопасное удаление элементов по индексам с валидацией"""
-    if not isinstance(original, list):
-        raise TypeError(f"Ожидается список, получен {type(original).__name__}")
 
-    if not isinstance(indexes, (list, tuple, set)):
-        raise TypeError(f"Индексы должны быть коллекцией, получен {type(indexes).__name__}")
-
-    # Фильтрация и нормализация индексов
-    valid_indexes = []
-    for idx in set(indexes):  # Удаляем дубликаты
-        if not isinstance(idx, int):
-            print(f"Пропуск нецелочисленного индекса: {idx} ({type(idx).__name__})")
-            continue
-
-        # Обработка отрицательных индексов
-        normalized_idx = idx if idx >=0 else len(original) + idx
-
-        if 0 <= normalized_idx < len(original):
-            valid_indexes.append(normalized_idx)
-        else:
-            print(f"Пропуск невалидного индекса: {idx} (допустимый диапазон: 0-{len(original)-1})")
-
-    # Сортировка в обратном порядке для безопасного удаления
-    for i in sorted(valid_indexes, reverse=True):
-        del original[i]
-
-    return original
+#функция перемещения песен между плейлистами
+@router.callback_query(F.data == "rebase_song", PlaylistsStates.edit_songs)
+async def rebase_song(callback: types.CallbackQuery, state: FSMContext):
+    #TODO реализовать логику перемещения песен
+    markup = InlineKeyboardBuilder()
+    data = await state.get_data()
+    playlists = data['playlists']
+    mes_text = "Выберите в какой плейлист хотите переместить песню"
+    for name in playlists.keys():
+        markup.add(types.InlineKeyboardButton(text = str(name), callback_data= str(name)))
+    markup.adjust(1, 1)
+    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
+    await state.set_state(PlaylistsStates.rebase_song)
 
 
-#создание плейлиста
-@router.callback_query(F.data == "create", PlaylistsStates.choose_action)
-async def rename(callback: types.CallbackQuery, state: FSMContext):
-    mes_text = "Напишите название плейлиста"
-    await callback.message.edit_text(text=mes_text)
+#функция перемещения песен между плейлистами
+@router.callback_query(PlaylistsStates.rebase_song)
+async def rebase_song(callback: types.CallbackQuery, state: FSMContext):
+    new_playlist = callback.data
+    await state.update_data(new_playlist=new_playlist)
+    markup = InlineKeyboardBuilder()
+    data = await state.get_data()
+    data.update()
+    playlists = data['playlists']
+    old_playlists = data['name_playlists']
+    mes_text = "Напишите название песни которую хотите переместить"
+    count = 0
+    for name in playlists[old_playlists]:
+        count += 1
+        mes_text += f"\n{count}: {name}"
 
-    await state.set_state(PlaylistsStates.create_playlist)
+    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
+    await state.set_state(PlaylistsStates.rebase_song)
 
-
-@router.message(F.text, PlaylistsStates.create_playlist)
-async def rename(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    text = message.text
-    # TODO достать из стейта плейлисты
-    if text not in playlists:
-        ok = create_playlist(user_id, text)
-        if not ok:
-            await message.answer("Что-то пошло не так. Попробуйте еще раз позже")
-        else:
-            mes_text = f"Плейлист {message.text} создан"
-            await message.answer(text=mes_text)
+@router.message(PlaylistsStates.rebase_song)
+async def rebase_song(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    new_playlist = data['new_playlist']
+    old_playlists = data['name_playlists']
+    song_name = message.text
+    ok = rebase_song_from_playlist(song_name, new_playlist, old_playlists)
+    if not ok:
+        await message.answer("При перемещение что-то пошло не так, попробуйте еще раз позже")
     else:
-        await message.answer(text="Такой плейлист уже существует")
-        return
-    await state.set_state(PlaylistsStates.action)
+        mes_text = f"Песня перемещена в плейлист {new_playlist}"
+        await message.answer(text=mes_text)
 
 
 #прослушивание песен
 @router.callback_query(F.data == "listen", PlaylistsStates.choose_action)
 async def listen_menu(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    playlists = data['playlists']
     markup = InlineKeyboardBuilder()
     sequential = types.InlineKeyboardButton(
         text="▶️ По порядку",
@@ -240,7 +286,6 @@ async def listen_menu(callback: types.CallbackQuery, state: FSMContext):
     markup.adjust(1, 1)
 
     songs = ""
-    # TODO достать из стейта плейлисты
     for song in playlists[data['name_playlist']]:
         songs += f"\n{song}"
     await callback.message.edit_text(text=songs, reply_markup=markup.as_markup())
@@ -251,10 +296,10 @@ async def listen_menu(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.in_({"sequential", "shuffle"}), PlaylistsStates.wait_choose)
 async def change_song(callback_query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    playlists = data['playlists']
     order = callback_query.data
 
     # 1. Сохраняем исходный список в состоянии при первом вызове
-    # TODO достать из стейта плейлисты
     original_songs = data.get('original_list', playlists[data['name_playlist']])
     await state.update_data(original_list=original_songs)
 
