@@ -7,4 +7,5 @@ class PlaylistsStates(StatesGroup):
     rename = State()
     edit_songs = State()
     create_playlist = State()
+    rebase_song= State()
     action = State()
