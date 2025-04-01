@@ -2,6 +2,8 @@ from aiogram import F, types, Router, Bot
 from aiogram.fsm.context import FSMContext
 import os
 
+from sources.postgres.sql_requests import save_mp3, rebase_song_from_playlist
+from sources.search.search import extract_features, to_svd
 from states.states_download import DownloadStates
 
 router = Router()
@@ -22,11 +24,39 @@ async def load_song(message: types.Message, state: FSMContext, bot: Bot):
         os.makedirs('sources/songs')
 
     file_path = f"sources/songs/{message.audio.file_name}"
-    await bot.download(message.audio.file_id, destination=file_path)
-    # TODO поиск песни по алгоритму
-    # TODO сохранение песни и метрик в бд
-    mes_text = f"Песня {message.audio.file_name} успешно загружена в плейлист 'Избранное'"
-    await message.answer(text=mes_text)
+    # Проверяем существование файла
+    if os.path.exists(file_path):
+        print(f"Файл {file_path} уже существует!")
+        mes_text = f"Песня {message.audio.file_name} успешно загружена"
+        await message.answer(text=mes_text)
+        await state.clear()
+        return
+    else:
+        # Файла нет, можно скачивать
+        await bot.download(message.audio.file_id, destination=file_path)
+
+    # создаем вектор VGGish
+    features: list[float] = extract_features(file_path).tolist()
+    # создаем svd
+    svd_features: list[float] = to_svd(features)
+
+    # сохранение в бд
+    song_id, ok = await save_mp3(
+        file_path,
+        message.audio.file_name,
+        features,
+        svd_features
+    )
+    if not ok:
+        await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
+    else:
+        ok = rebase_song_from_playlist(message.audio.file_name, "Избранное")
+        if not ok:
+            await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
+        else:
+            mes_text = f"Песня {message.audio.file_name} успешно загружена в плейлист 'Избранное'"
+            await message.answer(text=mes_text)
+
     await state.clear()
 
 

@@ -5,10 +5,11 @@ from handlers import start
 from handlers.search import search
 from handlers.history import history
 from handlers.download import download
-from handlers.recommendations import  recommendations
+from handlers.recommendations import recommendations, recommendations1
 from handlers.playlists import playlists
 
-TOKEN = "6401248215:AAHb1ieiU5malll9Hga3-eqTsQgwLCZjXow"
+
+TOKEN = "7258847191:AAGCd4xDlAM4MjDlnGBfHtEmUNTU19Xc7E8"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -19,7 +20,7 @@ async def main():
     dp.include_router(search.router)
     dp.include_router(history.router)
     dp.include_router(download.router)
-    dp.include_router(recommendations.router)
+    dp.include_router(recommendations1.router)
     dp.include_router(playlists.router)
 
     #  dp.include_router(файл.router)
