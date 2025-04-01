@@ -124,35 +124,18 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
         callback_data=f"add_song:{name}"
     ))
 
-    answer = download_song(int(callback.data[-1]), result, path)
-    if not answer[0]:
+    success, track_data = download_song(result, int(callback.data[-1]), path)
+
+    if not success:
         await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
         return
 
-    path_with_song = answer[1]
+    # Формируем путь к файлу (как это делается в download_song)
+    filename = os.path.join(path, f"{track_data['title']}.mp3")
+    mp3_path = f"{filename}.mp3"
 
-    file = FSInputFile(path_with_song)
-
-    # сохраняем имя песни
-    await state.update_data({"song_name": file.filename})
-
-    # создаем вектор VGGish
-    features: list[float] = extract_features(path_with_song).tolist()
-    # создаем svd
-    svd_features: list[float] = to_svd(features)
-
-    # сохранение в бд
-    song_id, ok = await save_mp3(
-        path_with_song,
-        file.filename,
-        features,
-        svd_features
-    )
-    if not ok:
-        await callback.message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
-    else:
-        await callback.message.answer_audio(file, reply_markup=markup.as_markup())
-
+    file = FSInputFile(mp3_path)
+    await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
 
 
