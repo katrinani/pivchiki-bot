@@ -5,14 +5,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sources.search.search import find_most_similar_song
+from sources.search.search import find_most_similar_song, extract_features, to_svd
 # импортируем статусы
 from states.states_search import SearchStates
 # парсер из ютуба
 from sources.parsers.YouTubeBomber import find_in_youtube, download_song
 # методы бд
-from sources.postgres.sql_requests import save_search_history
-
+from sources.postgres.sql_requests import save_search_history, save_mp3, rebase_song_from_playlist
 
 router = Router()
 
@@ -42,7 +41,15 @@ async def start_search(message: types.Message, state: FSMContext):
 @router.callback_query(F.data == "text", SearchStates.choose_method)
 async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
     mes_text = "Принято! Тогда введите свой запрос. Укажите название песни и/или автора:"
-    await callback.message.edit_text(text=mes_text)
+
+    markup = InlineKeyboardBuilder()
+    cansel = types.InlineKeyboardButton(
+        text="Отменить поиск",
+        callback_data="cansel"
+    )
+    markup.add(cansel)
+
+    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(SearchStates.wait_info_about_song)
 
 
@@ -74,8 +81,13 @@ async def request_processing(message: types.Message, state: FSMContext):
             callback_data=f"song_{i + 1}"
         )
         markup.add(btn)
+    cansel = types.InlineKeyboardButton(
+        text="Отменить поиск",
+        callback_data="cansel"
+    )
+    markup.add(cansel)
 
-    markup.adjust(5, 5)
+    markup.adjust(5, 5, 1)
 
     data = await state.get_data()
     await message.bot.edit_message_text(
@@ -85,6 +97,12 @@ async def request_processing(message: types.Message, state: FSMContext):
         reply_markup=markup.as_markup()
     )
     await state.set_state(SearchStates.send_song)
+
+
+@router.callback_query(F.data == "cansel")
+async def cansel_search(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Отменяю поиск")
+    await state.clear()
 
 
 @router.callback_query(
@@ -98,12 +116,12 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
     result = data["result"]
 
     path = "sources/songs"
+    name = result[int(callback.data[-1]) - 1]
 
-    # TODO сделать редирект на добавление
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data="add_song"
+        callback_data=f"add_song:{name}"
     ))
 
     success, track_data = download_song(result, int(callback.data[-1]), path)
@@ -137,27 +155,29 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
 
     nearest_song, max_similarity = find_most_similar_song(file_path)
     path = f"sources/songs/{nearest_song}"
+    if nearest_song == "":
+        text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
+        await message.answer(text=text)
+        await state.clear()
 
     # сохранить в бд запрос и время запроса
     user_id = message.from_user.id
     save_search_history(user_id, nearest_song)
-    # TODO сделать редирект на добавление
+
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data="add_song"
+        callback_data=f"add_song:{nearest_song}"
     ))
 
-    if max_similarity > 0.5:
-        file = FSInputFile(path)
-        mes_text = f"Я нашел:\n{nearest_song}"
-        await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
-        remove(file_path)
-        await state.clear()
-    else:
-        text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
-        await message.answer(text=text)
-        await state.clear()
+    file = FSInputFile(path)
+    mes_text = f"Я нашел:\n{nearest_song}"
+    await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
+    remove(file_path)
+    # сохраняем имя песни
+    await state.update_data({"song_name": file.filename})
+    await state.clear()
+
 
 
 @router.message(SearchStates.wait_audio)
@@ -165,3 +185,15 @@ async def voice_processing(message: types.Message, state: FSMContext):
     mes_text = "К сожалению это не голосовое сообщение\nПопробуйте записать его снова"
     await message.answer(text=mes_text)
     await state.set_state(SearchStates.wait_audio)
+
+
+@router.callback_query(F.data.startswith("add_song:"))
+async def add_new_song(callback: types.CallbackQuery, state: FSMContext):
+    song_name = callback.data.split(":")[1]
+
+    ok = rebase_song_from_playlist(song_name, "Избранное")
+    if not ok:
+        await callback.message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
+    else:
+        mes_text = f"Песня {song_name} успешно загружена в плейлист 'Избранное'"
+        await callback.message.answer(text=mes_text)

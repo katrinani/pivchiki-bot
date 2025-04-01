@@ -30,7 +30,7 @@ async def show_history_page(message: types.Message, state: FSMContext):
     mes_text = "Ваша история прослушиваний:\n\n"
     for idx, item in enumerate(current_history, start=1):
         mes_text += (
-            f"{idx + start}. {item['song']}"
+            f"{idx + start}. {item['song']}\n"
             f"   🗓 {item['date']}\n\n"
         )
 

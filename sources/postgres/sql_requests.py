@@ -1,5 +1,8 @@
 import psycopg2
+# pip install psycopg2-binary
+
 from .config import config_db
+
 
 conn = psycopg2.connect(
     dbname=config_db["dbname"],
@@ -41,6 +44,17 @@ def create_user(user_id: int):
         cursor.close()
 
 
+def get_features():
+    cursor = conn.cursor()
+    sql = """
+    SELECT Name, Features FROM Tracks WHERE Features IS NOT NULL;
+    """
+    cursor.execute(sql)
+    features_dict = {row[0]: row[1] for row in cursor.fetchall()}
+    cursor.close()
+    return features_dict
+
+
 def save_search_history(user_id: int, track_name: str):
     """Save user search history to database"""
     try:
@@ -68,7 +82,6 @@ def save_search_history(user_id: int, track_name: str):
         print(f"Error saving search history: {e}")
         conn.rollback()
         raise
-
 
 def get_history(user_id: int) -> list[dict[str, str]]:
     """Get user search history from database"""
@@ -135,7 +148,34 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     return playlists
 
 
-# TODO добавление mp3 в бд
+async def save_mp3(path: str, name: str, features: list[float], svd_features: list[float]):
+    query = """
+        INSERT INTO Tracks (Song, Name, Features, SVDFeatures)
+        VALUES (%s, %s, %s, %s)
+        RETURNING TrackId;
+    """
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute(query, (path, name, features, svd_features))
+
+        if cursor.rowcount != 1:
+            return False  # или можно вызвать исключение
+
+        # Получаем TrackId из результата запроса
+        track_id = cursor.fetchone()[0]
+
+        conn.commit()
+        return track_id, True
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Ошибка при сохранении трека: {e}")
+        return 0, False  # или можно вызвать исключение
+
+    finally:
+        cursor.close()
+
 
 def rename_playlist(playlist_name: str, new_name: str, user_id: int):
     """
@@ -288,7 +328,7 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
         cursor.execute("BEGIN;")
 
         # Получаем ID песни по названию
-        cursor.execute("SELECT TrackId FROM Tracks WHERE Song = %s", (song_name,))
+        cursor.execute("SELECT TrackId FROM Tracks WHERE Name = %s", (song_name,))
         song_result = cursor.fetchone()
         if not song_result:
             return False
