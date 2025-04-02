@@ -49,18 +49,19 @@ def download_song(result, choice: int, save_folder: str):
             }],
             'quiet': False,
         }
-        mp3_path = f"{filename}.mp3"
-        features = extract_svd_features(mp3_path)
-
-        title, lyrics, language = get_song_lyrics(selected_track['title'])
-        text_vector = get_text_vector(lyrics).tolist()
-        text_llm_vector = get_llm_text_vector(lyrics)
         youtube_url = selected_track.get('webpage_url') or selected_track.get(
             'url') or f"https://youtube.com/watch?v={selected_track.get('id', '')}"
 
         # Download
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
+
+        mp3_path = f"{filename}.mp3"
+        features = extract_svd_features(mp3_path)
+
+        title, lyrics, language = get_song_lyrics(selected_track['title'])
+        text_vector = get_text_vector(lyrics).tolist()
+        text_llm_vector = get_llm_text_vector(lyrics)
 
         save_song_to_db(
             title=title,
