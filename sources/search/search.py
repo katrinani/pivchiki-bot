@@ -10,8 +10,7 @@ from sources.postgres.sql_requests import get_features
 
 # Загрузка модели VGGish
 # Если не загружена запустить только этот файл
-model = hub.load("https://tfhub.dev/google/vggish/1")
-
+model = hub.load("sources/search/sources/model")
 
 def to_svd(features: list[float]):
     svd = TruncatedSVD(n_components=3)

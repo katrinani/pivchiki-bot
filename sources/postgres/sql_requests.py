@@ -5,10 +5,10 @@ from .config import config_db
 
 
 conn = psycopg2.connect(
-    dbname=config_db["dbname"],
-    user=config_db["user"],
-    password=config_db["password"],
-    host=config_db["host"]
+    dbname="music",
+    user="postgres",
+    password="123456",
+    host="localhost"
 )
 
 def create_user(user_id: int):
@@ -118,14 +118,14 @@ def get_history(user_id: int) -> list[dict[str, str]]:
         raise
 
 
-# TODO вытащить ссылки на песни
-def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
+def get_all_playlists(id_user: int) -> dict[str, list[dict]]:
     """
     Получение плейлистов и песен в нем конкретного пользователя
+    Возвращает словарь, где ключ - имя плейлиста, значение - список словарей с информацией о треках
     """
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT p.Name, t.Song
+        SELECT p.Name, t.TrackId, t.Song, t.Name
         FROM Playlists p
         LEFT JOIN PlaylistTracks pt ON p.PlaylistId = pt.PlaylistId
         LEFT JOIN Tracks t ON pt.TrackId = t.TrackId
@@ -136,13 +136,20 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     playlists = {}
     for row in cursor.fetchall():
         playlist_name = row[0]
-        song = row[1]
+        track_id = row[1]
+        song_path = row[2]
+        song_name = row[3]
 
         if playlist_name not in playlists:
             playlists[playlist_name] = []
 
-        if song:
-            playlists[playlist_name].append(song)
+        if track_id:  # Если есть трек (не NULL)
+            track_info = {
+                'id': track_id,
+                'название': song_name if song_name else 'Unknown',  # На случай NULL значения
+                'путь': song_path if song_path else ''  # На случай NULL значения
+            }
+            playlists[playlist_name].append(track_info)
 
     cursor.close()
     return playlists
