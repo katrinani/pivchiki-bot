@@ -2,10 +2,10 @@ import psycopg2
 from .config import config_db
 
 conn = psycopg2.connect(
-    dbname=config_db["dbname"],
-    user=config_db["user"],
-    password=config_db["password"],
-    host=config_db["host"]
+    dbname="music_db1",
+    user="postgres",
+    password="postgres",
+    host="localhost"
 )
 
 def create_user(user_id: int):
