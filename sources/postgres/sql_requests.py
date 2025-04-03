@@ -5,9 +5,9 @@ from .config import config_db
 
 
 conn = psycopg2.connect(
-    dbname="music",
+    dbname="music_db1",
     user="postgres",
-    password="123456",
+    password="postgres",
     host="localhost"
 )
 
@@ -415,6 +415,26 @@ def save_song_to_db(title, file_path, lyrics, language, text_vector, text_llm_ve
 
 
             conn.commit()
+
+    except Exception as e:
+        print(f"Ошибка при сохранении в базу данных: {e}")
+        conn.rollback()
+        raise
+
+def get_text_vector(vector_name):
+    """Save song information to tracks and artists tables"""
+    try:
+        with conn.cursor() as cursor:
+
+            cursor.execute(f"SELECT trackid, name, song, {vector_name} FROM tracks WHERE {vector_name} IS NOT NULL")
+            result = {}
+            for row in cursor:
+                result[row[0]] = {
+                    vector_name: row[3],  # вектор из указанного столбца
+                    'name': row[1],  # название трека
+                    'song': row[2]  # сам трек
+                }
+            return result
 
     except Exception as e:
         print(f"Ошибка при сохранении в базу данных: {e}")
