@@ -1,5 +1,5 @@
 from sources.postgres.sql_requests import get_text_vector
-from sources.postgres.sql_requests import get_best_tracks
+from sources.postgres.sql_requests import get_best_features
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -67,21 +67,18 @@ def get_similar_track(target_trackid, vector_name, top_n=10):
         return []
 
 
-def get_similar_tracks(track_ids, top_n=10):
+def get_similar_features(track_ids, top_n=10):
     all_tracks = []
     for track_id in track_ids:
-        # Получаем первый уникальный трек из textvector
-        tracks1 = get_similar_track(track_id, "textvector")
+
+        tracks1 = get_similar_track(track_id, "features")
+        i = 0
         for track in tracks1:
             if track not in all_tracks:
                 all_tracks.append(track)
-                break
-        # Получаем первый уникальный трек из textllmvector
-        tracks2 = get_similar_track(track_id, "textllmvector")
-        for track in tracks2:
-            if track not in all_tracks:
-                all_tracks.append(track)
-                break
+                i = i + 1
+                if i == 2:
+                    break
 
     # Формируем отдельные списки имен и путей
     names = []
@@ -94,6 +91,6 @@ def get_similar_tracks(track_ids, top_n=10):
     return names, paths
 
 """if __name__ == "__main__":
-    n, m = get_similar_tracks(get_best_tracks("1944615217")[-5:])
+    n, m = get_similar_features(get_best_features("1944615217")[-5:])
     print(n)
     print(m)"""

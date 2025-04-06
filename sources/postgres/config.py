@@ -1,5 +1,5 @@
 config_db = {
-    "dbname": "db",
+    "dbname": "final_db",
     "user": "postgres",
     "password": "111",
     "host": "localhost"

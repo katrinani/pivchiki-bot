@@ -23,9 +23,9 @@ router = Router()
 
 # --- Конфигурация для подключения к базе данных ---
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_NAME = os.getenv("DB_NAME", "music_db1")
+DB_NAME = os.getenv("DB_NAME", "final_db")
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "111")
 
 async def create_db_connection():
     """Создает подключение к базе данных PostgreSQL."""

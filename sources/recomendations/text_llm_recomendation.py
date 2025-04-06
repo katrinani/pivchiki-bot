@@ -7,27 +7,29 @@ def get_llm_text_vector(text: str, model_name: str = "mistral") -> list[float]:
     Analyze the following text and rate the intensity of the following emotions and attributes on a scale from 1 to 10, where 1 means absent and 10 means extremely strong. Provide only the scores in the order listed below, separated by commas, without any additional text or explanations.
     there must be only 20 numbers, no more, no less
     
-    1. Love
-    2. Sadness
-    3. Happiness
-    4. Anger
-    5. Nostalgia
-    6. Hope
-    7. Fear
-    8. Excitement
-    9. Loneliness
-    10. Confidence
-    11. Melancholy
-    12. Passion
-    13. Despair
-    14. Joy
-    15. Longing
-    16. Serenity
-    17. Anxiety
-    18. Gratitude
-    19. Betrayal
-    20. Curiosity
-    
+    Конечно, вот список с цифрами:
+
+    1. Love  
+    2. Sadness  
+    3. Happiness  
+    4. Anger  
+    5. Danceability  
+    6. Hope  
+    7. Fear  
+    8. Energetic  
+    9. Loneliness  
+    10. Confidence  
+    11. Melancholy  
+    12. Passion  
+    13. Despair  
+    14. Joy  
+    15. Longing  
+    16. Serenity  
+    17. Anxiety  
+    18. Tenderness  
+    19. Slowness  
+    20. Tension
+
     Text: «{text}»
     """
 

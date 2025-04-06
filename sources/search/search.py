@@ -9,8 +9,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sources.postgres.sql_requests import get_features
 
 # Загрузка модели VGGish
-# Если не загружена запустить только этот файл
-model = hub.load("sources/search/sources/model")
+os.environ['TFHUB_CACHE_DIR'] = 'tfhub_cache'
+
+model = hub.load("https://tfhub.dev/google/vggish/1")
+
 
 def to_svd(features: list[float]):
     svd = TruncatedSVD(n_components=3)
@@ -31,21 +33,24 @@ def extract_features(audio_path) -> np.ndarray:
 def find_most_similar_song(input_audio_path: str):
     input_features = extract_features(input_audio_path)
 
-    # Достаем словарь где ключ - имя песни, значение - вектора VGGish
-    database_features : dict[str: list[float]] = get_features()
+    # Теперь словарь содержит кортежи (features, name) для каждой песни
+    database_features: dict[str, tuple[list[float], str]] = get_features()
 
     max_similarity = -1
     best_song = None
+    best_name = None  # Добавляем переменную для хранения имени
 
-    for song_name, song_features in database_features.items():
+    for song_name, (song_features, name) in database_features.items():
         # Вычисление косинусного сходства
         similarity = cosine_similarity([input_features], [song_features])[0][0]
 
         if similarity > max_similarity:
             max_similarity = similarity
             best_song = song_name
+            best_name = name  # Сохраняем соответствующее имя
 
-    return best_song, max_similarity
+    # Возвращаем название песни, имя и значение сходства
+    return best_song, best_name, max_similarity
 
 
 if __name__ == "__main__":
