@@ -4,7 +4,7 @@ import os
 import asyncpg
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardButton, CallbackQuery
+from aiogram.types import InlineKeyboardButton, CallbackQuery, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List
 from aiogram.fsm.state import StatesGroup, State
@@ -46,7 +46,7 @@ async def create_db_connection():
 async def fetch_tracks(pool: asyncpg.Pool, track_ids: List[int]) -> List[dict]:
     """Получает информацию о треках по их ID."""
     async with pool.acquire() as conn:
-        stmt = await conn.prepare("SELECT TrackId, Name, ArtistId, EmotionVector FROM Tracks WHERE TrackId = ANY($1)")
+        stmt = await conn.prepare("SELECT TrackId, Name, ArtistId, EmotionVector, Song FROM Tracks WHERE TrackId = ANY($1)")
         tracks = await stmt.fetch(track_ids)
         return [dict(track) for track in tracks]
 
@@ -75,10 +75,10 @@ async def fetch_similar_tracks_by_physical(pool: asyncpg.Pool, track_id: int) ->
 async def fetch_track_features(pool: asyncpg.Pool, track_id: int):
     """Получает признаки трека."""
     async with pool.acquire() as conn:
-        stmt = await conn.prepare("SELECT Features, SVDFeatures FROM Tracks WHERE TrackId = $1")
+        stmt = await conn.prepare("SELECT Features FROM Tracks WHERE TrackId = $1")
         result = await stmt.fetchrow(track_id)
         if result:
-            return {"features": result['features'], "svd_features": result.get('svd_features')}
+            return {"features": result['features']}
         return None
 
 def calculate_similarity(features1, features2):
@@ -93,17 +93,17 @@ def calculate_similarity(features1, features2):
     return dot_product / (magnitude1 * magnitude2)
 
 async def fetch_all_track_features(pool: asyncpg.Pool) -> List[dict]:
-    """Получает Features и SVDFeatures всех треков."""
+    """Получает Features всех треков."""
     async with pool.acquire() as conn:
-        stmt = await conn.prepare("SELECT TrackId, Features, SVDFeatures FROM Tracks")
+        stmt = await conn.prepare("SELECT TrackId, Features FROM Tracks")
         records = await stmt.fetch()
         return [dict(record) for record in records]
 
 async def get_recommendations_by_features(pool: asyncpg.Pool, base_track_features: dict, current_track_id: int, num_recommendations: int = 5) -> List[int]:
-    """Получает рекомендации на основе Features и SVDFeatures."""
+    """Получает рекомендации на основе Features."""
     all_track_features = await fetch_all_track_features(pool)
     similarities = []
-    base_features = base_track_features.get('features') or base_track_features.get('svdfeatures')
+    base_features = base_track_features.get('features')
     if base_features is None:
         return []
 
@@ -111,7 +111,7 @@ async def get_recommendations_by_features(pool: asyncpg.Pool, base_track_feature
         track_id = track_data['trackid']
         if track_id == current_track_id:
             continue
-        track_features = track_data.get('features') or track_data.get('svdfeatures')
+        track_features = track_data.get('features')
         similarity = calculate_similarity(base_features, track_features)
         if similarity > 0:  # Рассматриваем только положительное сходство
             similarities.append((track_id, similarity))
@@ -357,9 +357,9 @@ async def handle_mood_recommendations(callback: types.CallbackQuery, state: FSMC
     # и сравнить его с выбранным настроением.
     # Временная заглушка с первыми 10 треками
     async with pool.acquire() as conn:
-        stmt = await conn.prepare("SELECT TrackId, Name FROM Tracks LIMIT 10")
+        stmt = await conn.prepare("SELECT TrackId, Name, Song FROM Tracks LIMIT 10")
         records = await stmt.fetch()
-        songs = [{"trackid": rec['trackid'], "name": rec['name']} for rec in records]
+        songs = [{"trackid": rec['trackid'], "name": rec['name'], "song": rec['song']} for rec in records]
 
     if songs:
         await display_recommendations(callback, state, f"{mood}\n😊 Рекомендации по настроению", songs)
@@ -388,47 +388,46 @@ async def cheerful_mood(callback: types.CallbackQuery, state: FSMContext):
 # Обработчик для кнопки "Основываясь на моем выборе"
 @router.callback_query(F.data == "based_on_my_choice", RecommendationsStates.choose_recommendations)
 async def recommendations_based_on_choice(callback: types.CallbackQuery, state: FSMContext):
-    pool = await create_db_connection()
+    num_desired_recommendations = 10
+    user_id = callback.from_user.id
+    pool = await create_db_connection() # Пока оставляем асинхронное подключение для чтения
     if not pool:
-        await callback.answer("Не удалось подключиться к базе данных.", show_alert=True)
+        await callback.answer("Не удалось подключиться к базе данных для чтения.", show_alert=True)
         return
 
-    num_desired_recommendations = 10 # Установите желаемое количество рекомендаций
-    user_id = callback.from_user.id  # Получаем ID пользователя
-    base_track_ids = await get_user_tracks(pool, user_id, num_tracks=5)  # Получаем 5 последних треков пользователя (пример)
-    print(f"Получены следующие базовые треки (ID): {base_track_ids}") # Добавили лог
+    base_track_ids = await get_user_tracks(pool, user_id, num_tracks=5)
+    print(f"Получены следующие базовые треки (ID): {base_track_ids}")
 
     recommended_track_ids = set()
 
     for track_id in base_track_ids:
-        print(f"Обрабатываем трек с ID: {track_id}") # Добавили лог
+        print(f"Обрабатываем трек с ID: {track_id}")
         similar_by_physical = await fetch_similar_tracks_by_physical(pool, track_id)
-        print(f"Физически похожие треки (ID): {similar_by_physical}") # Добавили лог
+        print(f"Физически похожие треки (ID): {similar_by_physical}")
         if similar_by_physical:
-            recommended_track_ids.update(similar_by_physical[:5]) # Берем до 5 рекомендаций от каждого трека
+            recommended_track_ids.update(similar_by_physical[:5])
         else:
-            print(f"Нет физически похожих треков для ID: {track_id}. Попытка поиска по признакам.") # Добавили лог
+            print(f"Нет физически похожих треков для ID: {track_id}. Попытка поиска по признакам.")
             track_features = await fetch_track_features(pool, track_id)
-            if track_features:
-                # Увеличиваем количество запрашиваемых рекомендаций по признакам
+            if track_features and 'features' in track_features:
                 recommendations_by_features = await get_recommendations_by_features(pool, track_features, track_id, num_recommendations=10)
-                print(f"Рекомендации по признакам (ID): {recommendations_by_features}") # Добавили лог
+                print(f"Рекомендации по признакам (ID): {recommendations_by_features}")
                 recommended_track_ids.update(recommendations_by_features)
             else:
-                print(f"Не удалось получить признаки для трека с ID: {track_id}") # Добавили лог
+                print(f"Не удалось получить признаки для трека с ID: {track_id}")
 
-        print(f"Текущий список рекомендованных треков (ID): {recommended_track_ids}") # Добавили лог
-        if len(recommended_track_ids) >= num_desired_recommendations:
-            break # Достаточно желаемого количества рекомендаций
+        print(f"Текущий список рекомендованных треков (ID): {recommended_track_ids}")
+        # if len(recommended_track_ids) >= num_desired_recommendations:
+        #     break # Достаточно желаемого количества рекомендаций
 
-    print(f"Финальный список рекомендованных треков (ID): {recommended_track_ids}") # Добавили лог
+    print(f"Финальный список рекомендованных треков (ID): {recommended_track_ids}")
     if not recommended_track_ids:
         await callback.message.edit_text("Не удалось найти рекомендации на основе вашего выбора.")
         await pool.close()
         return
 
     # Получаем полную информацию о рекомендованных треках
-    final_recommendations = await fetch_tracks(pool, list(recommended_track_ids)[:num_desired_recommendations]) # Берем желаемое количество
+    final_recommendations = await fetch_tracks(pool, list(recommended_track_ids)[:num_desired_recommendations])
 
     if final_recommendations:
         await display_recommendations(callback, state, "✨ Рекомендации, основанные на вашем выборе", final_recommendations)
@@ -468,33 +467,75 @@ async def process_dislike(callback: CallbackQuery, state: FSMContext):
 # Обработчик для перелистывания страниц и оценки
 async def display_recommendations(callback: types.CallbackQuery, state: FSMContext, title: str, tracks: List[dict]):
     await state.update_data(songs=[track['name'] for track in tracks], current_index=0, total=len(tracks), recommended_tracks_data=tracks)
-    await callback.message.edit_text(
-        text=f"{title}:\n🎵 {tracks[0]['name']} (ID: {tracks[0]['trackid']})",
-        reply_markup=await get_pagination_markup(0, len(tracks), state) # Передаем state
-    )
+    if tracks:
+        track = tracks[0]
+        song_path = track.get('song')
+        if song_path and os.path.exists(song_path):
+            media = types.InputMediaAudio(media=FSInputFile(song_path), caption=title)
+            if len(tracks) > 1:
+                await callback.bot.edit_message_media(
+                    chat_id=callback.message.chat.id,
+                    message_id=callback.message.message_id,
+                    media=media,
+                    reply_markup=await get_pagination_markup(0, len(tracks), state)
+                )
+            else:
+                await callback.bot.edit_message_media(
+                    chat_id=callback.message.chat.id,
+                    message_id=callback.message.message_id,
+                    media=media,
+                    reply_markup=None
+                )
+        else:
+            await callback.message.edit_text(f"{title}:\nНе удалось найти аудиофайл для трека '{track['name']}'.")
+    else:
+        await callback.message.edit_text(f"{title}:\nРекомендации не найдены.")
     await state.set_state(RecommendationsStates.wait_recommendations)
 
 #Обработчик для перелистывания страниц
+#Обработчик для перелистывания страниц
 @router.callback_query(F.data.in_({"next", "prev"}), RecommendationsStates.wait_recommendations)
-async def handle_pagination(callback: types.CallbackQuery, state: FSMContext):
+async def handle_pagination(callback_query: types.CallbackQuery, state: FSMContext):
+    user_id = callback_query.from_user.id
     data = await state.get_data()
-    current_index = data["current_index"]
-    total = data["total"]
-    songs = data["songs"]
-    recommended_tracks_data = data["recommended_tracks_data"]
+    current_index = data.get("current_index", 0)
+    total = data.get("total", 0)
+    recommended_tracks_data = data.get("recommended_tracks_data")
 
-    if callback.data == "next" and current_index < total - 1:
-        current_index += 1
-    elif callback.data == "prev" and current_index > 0:
-        current_index -= 1
+    if recommended_tracks_data:
+        index = current_index
+        if callback_query.data == "next":
+            index += 1
+        elif callback_query.data == "prev":
+            index -= 1
 
-    await state.update_data(current_index=current_index)
-    track = recommended_tracks_data[current_index]
-    await callback.message.edit_text(
-        text=f"🎵 {track['name']} (ID: {track['trackid']})",
-        reply_markup=await get_pagination_markup(current_index, total, state) # Передаем state
-    )
-    await callback.answer()
+        if 0 <= index < total:
+            await state.update_data(current_index=index)
+            track = recommended_tracks_data[index]
+            song_path = track.get('song')
+            track_name = track.get('name')
+            title = f"Рекомендация: {track_name}"
+
+            try:
+                if song_path and os.path.exists(song_path):
+                    media = types.InputMediaAudio(media=FSInputFile(song_path), caption=title)
+                    await callback_query.bot.edit_message_media(
+                        chat_id=user_id,
+                        message_id=callback_query.message.message_id,
+                        media=media,
+                        reply_markup=await get_pagination_markup(index, total, state)
+                    )
+                    await callback_query.answer()
+                else:
+                    await callback_query.answer("Аудиофайл не найден.", show_alert=True)
+            except Exception as e:
+                import logging
+                logging.error(f"Ошибка при обновлении аудио: {e}")
+                await callback_query.answer("Произошла ошибка при обновлении аудио.", show_alert=True)
+        else:
+            await callback_query.answer("Нет больше треков.", show_alert=True)
+    else:
+        await callback_query.answer("Нет доступных рекомендаций.", show_alert=True)
 
 #клавиатура для перелистывания и оценивания
 async def get_pagination_markup(current_index: int, total: int, state: FSMContext):
@@ -510,10 +551,9 @@ async def get_pagination_markup(current_index: int, total: int, state: FSMContex
     builder.row(*pagination_buttons)
 
     # Строка реакций
-    data = {"track_id": "some_id"} # Placeholder, track_id будет динамически устанавливаться в обработчиках
-    recommended_tracks_data = None # Инициализация переменной
+    recommended_tracks_data = None
     try:
-        state_data = await state.get_data() # Заменили asyncio.run() на await
+        state_data = await state.get_data()
         recommended_tracks_data = state_data.get("recommended_tracks_data")
         track_id = recommended_tracks_data[current_index]['trackid'] if recommended_tracks_data else None
         builder.row(
@@ -526,7 +566,6 @@ async def get_pagination_markup(current_index: int, total: int, state: FSMContex
             InlineKeyboardButton(text="👍", callback_data="like_none"),
             InlineKeyboardButton(text="👎", callback_data="dislike_none")
         )
-
 
     # Строка плейлиста
     builder.row(
@@ -619,12 +658,10 @@ async def recommendations_based_on_choice(callback: types.CallbackQuery, state: 
     base_track_ids = await get_user_tracks(pool, user_id, num_tracks=5)
     print(f"Получены следующие базовые треки (ID): {base_track_ids}")
 
-    all_recommendations = {}
+    recommended_track_ids = set()
 
     for track_id in base_track_ids:
         print(f"Обрабатываем трек с ID: {track_id}")
-        recommended_track_ids = set()
-
         similar_by_physical = await fetch_similar_tracks_by_physical(pool, track_id)
         print(f"Физически похожие треки (ID): {similar_by_physical}")
         if similar_by_physical:
@@ -632,7 +669,7 @@ async def recommendations_based_on_choice(callback: types.CallbackQuery, state: 
         else:
             print(f"Нет физически похожих треков для ID: {track_id}. Попытка поиска по признакам.")
             track_features = await fetch_track_features(pool, track_id)
-            if track_features:
+            if track_features and 'features' in track_features:
                 recommendations_by_features = await get_recommendations_by_features(pool, track_features, track_id, num_recommendations=10)
                 print(f"Рекомендации по признакам (ID): {recommendations_by_features}")
                 recommended_track_ids.update(recommendations_by_features)
@@ -640,42 +677,20 @@ async def recommendations_based_on_choice(callback: types.CallbackQuery, state: 
                 print(f"Не удалось получить признаки для трека с ID: {track_id}")
 
         print(f"Текущий список рекомендованных треков (ID): {recommended_track_ids}")
-        all_recommendations[track_id] = list(recommended_track_ids)
+        # if len(recommended_track_ids) >= num_desired_recommendations:
+        #     break # Достаточно желаемого количества рекомендаций
 
-    final_recommended_track_ids = set()
-    for recommendations in all_recommendations.values():
-        final_recommended_track_ids.update(recommendations)
-
-    print(f"Финальный список рекомендованных треков (ID): {final_recommended_track_ids}")
-    if not final_recommended_track_ids:
+    print(f"Финальный список рекомендованных треков (ID): {recommended_track_ids}")
+    if not recommended_track_ids:
         await callback.message.edit_text("Не удалось найти рекомендации на основе вашего выбора.")
         await pool.close()
         return
 
-    # Синхронная запись в базу данных
-    try:
-        conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD)
-        cur = conn.cursor()
-        for base_track_id, recommendations_to_save in all_recommendations.items():
-            if recommendations_to_save:
-                query = "UPDATE Tracks SET PhysicalSimilarTracksIds = %s WHERE TrackId = %s"
-                cur.execute(query, (recommendations_to_save, base_track_id))
-                print(f"Синхронно сохранены рекомендации {recommendations_to_save} как физически похожие для трека {base_track_id}")
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"Ошибка при синхронной записи в базу данных: {e}")
+    # Получаем полную информацию о рекомендованных треках
+    final_recommendations = await fetch_tracks(pool, list(recommended_track_ids)[:num_desired_recommendations])
 
-    # Получаем полную информацию о рекомендованных треках для отображения
-    final_recommendations_info = await fetch_tracks(pool, list(final_recommended_track_ids)[:num_desired_recommendations])
-
-    if final_recommendations_info:
-        recommendation_texts = [f"🎵 {track['name']} (ID: {track['trackid']})" for track in final_recommendations_info]
-        response_text = "✨ Рекомендации, основанные на вашем выборе:\n" + "\n".join(recommendation_texts)
-        await callback.message.edit_text(text=response_text)
-        await state.set_state(RecommendationsStates.wait_recommendations)
-        await state.update_data(songs=[track['name'] for track in final_recommendations_info], current_index=0, total=len(final_recommendations_info), recommended_tracks_data=final_recommendations_info)
+    if final_recommendations:
+        await display_recommendations(callback, state, "✨ Рекомендации, основанные на вашем выборе", final_recommendations)
     else:
         await callback.message.edit_text("Не удалось получить информацию по рекомендованным трекам.")
 
