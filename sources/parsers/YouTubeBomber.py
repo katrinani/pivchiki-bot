@@ -56,12 +56,17 @@ def download_song(result, choice: int, save_folder: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
 
-        mp3_path = f"{filename}.mp3"
+        mp3_path = f"{filename}"
+        print("путь загружен")
         features = extract_svd_features(mp3_path)
+        print("фичи загружены")
 
         title, lyrics, language = get_song_lyrics(selected_track['title'])
+        print("текст загружен")
         text_vector = get_text_vector(lyrics).tolist()
+        print("текст вектор загружен")
         text_llm_vector = get_llm_text_vector(lyrics)
+        print("текст ллм вектор загружен")
 
         save_song_to_db(
             title=title,

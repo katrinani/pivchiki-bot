@@ -20,11 +20,10 @@ async def main():
     dp.include_router(search.router)
     dp.include_router(history.router)
     dp.include_router(download.router)
-    dp.include_router(recommendations1.router)
+    dp.include_router(recommendations.router)
     dp.include_router(playlists.router)
 
     #  dp.include_router(файл.router)
-
 
     await dp.start_polling(bot)
 

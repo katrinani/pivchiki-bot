@@ -3,7 +3,7 @@ from aiogram.fsm.context import FSMContext
 import os
 
 from sources.postgres.sql_requests import save_mp3, rebase_song_from_playlist
-from sources.search.search import extract_features, to_svd
+from sources.search.search import extract_features
 from states.states_download import DownloadStates
 
 router = Router()
@@ -37,15 +37,12 @@ async def load_song(message: types.Message, state: FSMContext, bot: Bot):
 
     # создаем вектор VGGish
     features: list[float] = extract_features(file_path).tolist()
-    # создаем svd
-    svd_features: list[float] = to_svd(features)
 
     # сохранение в бд
     song_id, ok = await save_mp3(
         file_path,
         message.audio.file_name,
-        features,
-        svd_features
+        features
     )
     if not ok:
         await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")

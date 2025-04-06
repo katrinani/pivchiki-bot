@@ -1,10 +1,14 @@
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from states.states_recommendations import RecommendationsStates
 from sources.postgres.sql_requests import rebase_song_from_playlist
+from sources.recomendations.text_grade import get_similar_tracks
+from sources.recomendations.physic_grade import get_similar_features
+from sources.postgres.sql_requests import get_best_tracks
+from sources.postgres.sql_requests import get_best_features
 
 router = Router()
 
@@ -26,7 +30,7 @@ async def start_recommendations(message: types.Message, state: FSMContext):
         callback_data="mood"
     )
 
-    markup.add(by_mood, by_user, by_similar)
+    markup.add(by_user, by_similar, by_mood)
     markup.adjust(1, 1)
 
     sent_message = await message.answer(text="Выберите тип рекомендации:", reply_markup=markup.as_markup())
@@ -56,147 +60,117 @@ async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "similar", RecommendationsStates.choose_recommendations)
 async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
-    # TODO запрос к алгоритму похожий плейлсит на ваш
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
+    user_id = callback.from_user.id
+
+    # Используем ID пользователя для получения треков
+    songs, paths = get_similar_features(get_best_features(str(user_id))[-5:])
 
     await state.update_data(
         songs=songs,
+        paths=paths,
         current_index=0,
-        total=len(songs)
+        total=len(songs),
+        last_message_id=None
     )
 
-    await callback.message.edit_text(
-        text=f"🎶 Похожие на ваш выбор:\n🎵 {songs[0]}",
+    # Отправляем первое аудио
+    file = FSInputFile(paths[0])
+    message = await callback.message.answer_audio(
+        file,
+        caption=f"\n🎵 {songs[0]}",
         reply_markup=get_pagination_markup(0, len(songs))
     )
-    await state.set_state(RecommendationsStates.wait_recommendations)
+
+    # Сохраняем ID сообщения
+    await state.update_data(last_message_id=message.message_id)
+
+    # Удаляем исходное сообщение с кнопкой
+    await callback.message.delete()
+
+    await state.set_state(RecommendationsStates.choose_recommendations)
 
 
 #По настроению
 @router.callback_query(F.data == "mood", RecommendationsStates.choose_recommendations)
 async def choose_mood(callback: types.CallbackQuery, state: FSMContext):
-    markup = InlineKeyboardBuilder()
-    by_sad = types.InlineKeyboardButton(
-        text="Грустное 😢",
-        callback_data="sad"
-    )
-    by_happy = types.InlineKeyboardButton(
-        text="Веселое 🙂",
-        callback_data="happy"
-    )
-    by_relax = types.InlineKeyboardButton(
-        text="Спокойное 🥱",
-        callback_data="relax"
-    )
-    by_cheerful = types.InlineKeyboardButton(
-        text="Бодрое 💃",
-        callback_data="cheerful"
+    user_id = callback.from_user.id
+
+    # Используем ID пользователя для получения треков
+    songs, paths = get_similar_tracks(get_best_tracks(str(user_id))[-5:])
+
+    await state.update_data(
+        songs=songs,
+        paths=paths,
+        current_index=0,
+        total=len(songs),
+        last_message_id=None
     )
 
-    markup.add(by_happy, by_sad, by_relax, by_cheerful)
-    markup.adjust(1, 1, 1, 1)
+    # Отправляем первое аудио
+    file = FSInputFile(paths[0])
+    message = await callback.message.answer_audio(
+        file,
+        caption=f"\n🎵 {songs[0]}",
+        reply_markup=get_pagination_markup(0, len(songs))
+    )
 
-    mes_text = "Выберите настроение"
-    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
+    # Сохраняем ID сообщения
+    await state.update_data(last_message_id=message.message_id)
+
+    # Удаляем исходное сообщение с кнопкой
+    await callback.message.delete()
+
     await state.set_state(RecommendationsStates.choose_recommendations)
 
 
-@router.callback_query(F.data == "sad", RecommendationsStates.choose_recommendations)
-async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
-    # TODO запрос к алгоритму по настроению "Грустное"
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
-
-    await state.update_data(
-        songs=songs,
-        current_index=0,
-        total=len(songs)
-    )
-
-    await callback.message.edit_text(
-        text=f"Грустное 😢\n🎵 {songs[0]}",
-        reply_markup=get_pagination_markup(0, len(songs))
-    )
-    await state.set_state(RecommendationsStates.wait_recommendations)
-
-
-@router.callback_query(F.data == "happy", RecommendationsStates.choose_recommendations)
-async def happy_mood(callback: types.CallbackQuery, state: FSMContext):
-    # TODO запрос к алгоритму по настроению "Веселое"
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
-
-    await state.update_data(
-        songs=songs,
-        current_index=0,
-        total=len(songs)
-    )
-
-    await callback.message.edit_text(
-        text=f"Веселое 🙂\n🎵 {songs[0]}",
-        reply_markup=get_pagination_markup(0, len(songs))
-    )
-    await state.set_state(RecommendationsStates.wait_recommendations)
-
-@router.callback_query(F.data == "relax", RecommendationsStates.choose_recommendations)
-async def relax_mood(callback: types.CallbackQuery, state: FSMContext):
-    #TODO запрос к алгоритму по настроению "Споконое"
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
-
-    await state.update_data(
-        songs=songs,
-        current_index=0,
-        total=len(songs)
-    )
-
-    await callback.message.edit_text(
-        text=f"Спокойное 🥱\n🎵 {songs[0]}",
-        reply_markup=get_pagination_markup(0, len(songs))
-    )
-    await state.set_state(RecommendationsStates.wait_recommendations)
-
-
-@router.callback_query(F.data == "cheerful", RecommendationsStates.choose_recommendations)
-async def cheerful_mood(callback: types.CallbackQuery, state: FSMContext):
-    # TODO запрос к алгоритму по настроению "Бодроее"
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
-
-    await state.update_data(
-        songs=songs,
-        current_index=0,
-        total=len(songs)
-    )
-
-    await callback.message.edit_text(
-        text=f"Бодрое 💃\n🎵 {songs[0]}",
-        reply_markup=get_pagination_markup(0, len(songs))
-    )
-    await state.set_state(RecommendationsStates.wait_recommendations)
-
-
-
-#Обработчик для перелистывания страниц
 @router.callback_query(F.data.in_({"next", "prev"}))
 async def handle_pagination(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_index = data["current_index"]
     total = data["total"]
     songs = data["songs"]
+    paths = data["paths"]
+    last_message_id = data.get("last_message_id")
 
+    # Определяем новый индекс
+    new_index = current_index
     if callback.data == "next" and current_index < total - 1:
-        current_index += 1
+        new_index += 1
     elif callback.data == "prev" and current_index > 0:
-        current_index -= 1
+        new_index -= 1
 
-    await state.update_data(current_index=current_index)
+    if new_index == current_index:
+        await callback.answer()
+        return
 
-    await callback.message.edit_text(
-        text=f"🎵 {songs[current_index]}",
-        reply_markup=get_pagination_markup(current_index, total)
+    # 1. Сначала отправляем новое аудио
+    file = FSInputFile(paths[new_index])
+    try:
+        message = await callback.message.answer_audio(
+            audio=file,
+            caption=f"🎵 {songs[new_index]}",
+            reply_markup=get_pagination_markup(new_index, total)
+        )
+    except Exception as e:
+        await callback.answer("Ошибка при загрузке трека", show_alert=True)
+        return
+
+    # 2. Только после успешной отправки удаляем старое сообщение
+    if last_message_id:
+        try:
+            await callback.bot.delete_message(
+                chat_id=callback.message.chat.id,
+                message_id=last_message_id
+            )
+        except:
+            pass  # Если не удалось удалить, не прерываем работу
+
+    # 3. Обновляем состояние
+    await state.update_data(
+        current_index=new_index,
+        last_message_id=message.message_id
     )
+
     await callback.answer()
 
 #клавиатура для перелистывания и оценивания

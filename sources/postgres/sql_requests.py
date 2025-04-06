@@ -1,7 +1,7 @@
 import psycopg2
 # pip install psycopg2-binary
 
-from .config import config_db
+from sources.postgres.config import config_db
 
 
 conn = psycopg2.connect(
@@ -47,10 +47,11 @@ def create_user(user_id: int):
 def get_features():
     cursor = conn.cursor()
     sql = """
-    SELECT Name, Features FROM Tracks WHERE Features IS NOT NULL;
+    SELECT Song, Features, Name FROM Tracks WHERE Features IS NOT NULL;
     """
     cursor.execute(sql)
-    features_dict = {row[0]: row[1] for row in cursor.fetchall()}
+    # Теперь словарь будет содержать кортежи (Features, Name) для каждой песни
+    features_dict = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
     cursor.close()
     return features_dict
 
@@ -65,6 +66,7 @@ def save_search_history(user_id: int, track_name: str):
                     userid, 
                     trackname,
                     listeningdate
+                    
                 )
                 VALUES (
                     %s,
@@ -148,16 +150,16 @@ def get_all_playlists(id_user: int) -> dict[str, list[str] | list]:
     return playlists
 
 
-async def save_mp3(path: str, name: str, features: list[float], svd_features: list[float]):
+async def save_mp3(path: str, name: str, features: list[float]):
     query = """
-        INSERT INTO Tracks (Song, Name, Features, SVDFeatures)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO Tracks (Song, Name, Features)
+        VALUES (%s, %s, %s)
         RETURNING TrackId;
     """
 
     cursor = conn.cursor()
     try:
-        cursor.execute(query, (path, name, features, svd_features))
+        cursor.execute(query, (path, name, features))
 
         if cursor.rowcount != 1:
             return False  # или можно вызвать исключение
@@ -406,6 +408,7 @@ def save_song_to_db(title, file_path, lyrics, language, text_vector, text_llm_ve
                 features
             ))
 
+            print("данные в бд загружены")
 
             conn.commit()
 
@@ -433,6 +436,76 @@ def get_text_vector(vector_name):
         print(f"Ошибка при сохранении в базу данных: {e}")
         conn.rollback()
         raise
+
+
+def get_best_tracks(user_id):
+    """Get last tracks from user's 'Избранное' playlist"""
+    try:
+        with conn.cursor() as cursor:
+            # 1. Получаем ID плейлиста "Избранное" для данного пользователя
+            cursor.execute(
+                "SELECT playlistid FROM playlists WHERE userid = %s AND name = 'Избранное'",
+                (user_id,)
+            )
+            playlist = cursor.fetchone()
+
+            if not playlist:
+                return None  # Плейлист не найден
+
+            playlist_id = playlist[0]
+
+            cursor.execute(
+                """SELECT DISTINCT pt.trackid 
+                FROM playlisttracks pt
+                LEFT JOIN tracks tv ON pt.trackid = tv.trackid
+                WHERE pt.playlistid = %s
+                AND (tv.textvector IS NOT NULL)
+                AND (tv.textllmvector IS NOT NULL)"""
+                ,
+                (playlist[0],)
+            )
+
+            # Возвращаем плоский список ID треков
+            return [row[0] for row in cursor.fetchall()]
+
+    except Exception as e:
+        print(f"Ошибка при получении треков из плейлиста: {e}")
+        return None
+
+def get_best_features(user_id):
+    """Get last tracks from user's 'Избранное' playlist"""
+    try:
+        with conn.cursor() as cursor:
+            # 1. Получаем ID плейлиста "Избранное" для данного пользователя
+            cursor.execute(
+                "SELECT playlistid FROM playlists WHERE userid = %s AND name = 'Избранное'",
+                (user_id,)
+            )
+            playlist = cursor.fetchone()
+
+            if not playlist:
+                return None  # Плейлист не найден
+
+            playlist_id = playlist[0]
+
+            cursor.execute(
+                """
+                SELECT trackid
+                FROM playlisttracks
+                WHERE playlistid = %s"""
+                ,
+                (playlist[0],)
+            )
+
+            # Возвращаем плоский список ID треков
+            return [row[0] for row in cursor.fetchall()]
+
+    except Exception as e:
+        print(f"Ошибка при получении треков из плейлиста: {e}")
+        return None
+
+"""if __name__ == "__main__":
+    print(get_best_tracks("1944615217")[-5:])"""
 """
 -- Таблица пользователей
 CREATE TABLE Users (

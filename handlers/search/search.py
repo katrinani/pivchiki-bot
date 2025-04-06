@@ -111,26 +111,32 @@ async def cansel_search(callback: types.CallbackQuery, state: FSMContext):
 )
 async def send_song(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Замечательный выбор! Загружаю...")
-    # получаем результаты хендлера выше
     data = await state.get_data()
     result = data["result"]
 
     path = "sources/songs"
     name = result[int(callback.data[-1]) - 1]
 
+    callback_data = f"add_song:{name}"
+
+    # Проверяем длину callback_data
+    if len(callback_data.encode('utf-8')) > 64:
+        callback_data = callback_data[:64]  # Обрезаем до 64 байт
+
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data=f"add_song:{name}"
+        callback_data=callback_data  # Используем безопасную версию
     ))
 
     success, track_data = download_song(result, int(callback.data[-1]), path)
+
+    print(success, track_data)
 
     if not success:
         await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
         return
 
-    # Формируем путь к файлу (как это делается в download_song)
     filename = os.path.join(path, f"{track_data['title']}.mp3")
     mp3_path = f"{filename}.mp3"
 
@@ -153,8 +159,8 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     file_path = f"{message.voice.file_id}.ogg"
     await bot.download(message.voice.file_id, destination=file_path)
 
-    nearest_song, max_similarity = find_most_similar_song(file_path)
-    path = f"sources/songs/{nearest_song}"
+    nearest_song, best_name, max_similarity = find_most_similar_song(file_path)
+
     if nearest_song == "":
         text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
         await message.answer(text=text)
@@ -162,16 +168,16 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
 
     # сохранить в бд запрос и время запроса
     user_id = message.from_user.id
-    save_search_history(user_id, nearest_song)
+    save_search_history(user_id, best_name)
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в плейлист",
-        callback_data=f"add_song:{nearest_song}"
+        callback_data=f"add_song:{best_name}"
     ))
 
-    file = FSInputFile(path)
-    mes_text = f"Я нашел:\n{nearest_song}"
+    file = FSInputFile(nearest_song)
+    mes_text = f"Я нашел:\n{best_name}"
     await message.answer_audio(file, caption=mes_text, reply_markup=markup.as_markup())
     remove(file_path)
     # сохраняем имя песни
