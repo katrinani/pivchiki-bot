@@ -177,7 +177,7 @@ async def delete(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     name_playlist = data['name_playlist']
     mes_text = f"Плейлист {data['name_playlist']} удален"
-    try:    
+    try:
         ok = delete_playlist(data['name_playlist'], user_id)
         if not ok:
             await callback.message.answer("Что-то пошло не так. Попробуйте еще раз позже")
@@ -256,9 +256,11 @@ async def rebase_song(callback: types.CallbackQuery, state: FSMContext):
     markup = InlineKeyboardBuilder()
     data = await state.get_data()
     playlists = data['playlists']
+    name_playlist = data['name_playlist']
     mes_text = "Выберите в какой плейлист хотите переместить песню"
     for name in playlists.keys():
-        markup.add(types.InlineKeyboardButton(text = str(name), callback_data= str(name)))
+        if name != name_playlist:
+            markup.add(types.InlineKeyboardButton(text = str(name), callback_data= str(name)))
     markup.adjust(1, 1)
     await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(PlaylistsStates.rebase_song)
@@ -337,9 +339,9 @@ async def send_audio_message(message: types.Message, track: dict, markup: Inline
         )
     except Exception as e:
         error_message = f"❌ Ошибка: {str(e)}"
-        # Заменяем edit_text на answer
-        await message.answer(error_message)  # Отправляем новое сообщение
-        return None  # Добавляем возврат
+        await message.answer(error_message)
+        return None
+
 
 @router.callback_query(F.data.in_({"sequential", "shuffle"}), PlaylistsStates.wait_choose)
 async def change_song(callback: types.CallbackQuery, state: FSMContext):
@@ -357,54 +359,97 @@ async def change_song(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(
         page=0,
         current_list=tracks,
-        original_list=original_tracks
+        original_list=original_tracks,
+        items_per_page=10  # Добавляем параметр элементов на страницу
     )
 
     new_data = await state.get_data()
     track_list = new_data['current_list']
     page = new_data.get('page', 0)
+    per_page = new_data['items_per_page']
 
     markup = InlineKeyboardBuilder()
+
+    # Рассчитываем диапазон треков
+    start = page * per_page
+    end = start + per_page
+    current_page_tracks = track_list[start:end]
+
+    # Добавляем кнопки для каждого трека на странице
+    for idx, track in enumerate(current_page_tracks, start=1):
+        markup.button(
+            text=f"{idx}. {track['название'][:15]}",
+            callback_data=f"track_{start + idx - 1}"
+        )
+
+    # Добавляем кнопки пагинации
     if page > 0:
-        markup.button(text="⬅️ Предыдущая", callback_data=f"previous:{page - 1}")
-    if (page + 1) < len(track_list):
-        markup.button(text="➡️ Следующая", callback_data=f"next:{page + 1}")
-    markup.adjust(1, 1)
+        markup.button(text="⬅️ Предыдущая", callback_data=f"prev_page_{page - 1}")
+    if end < len(track_list):
+        markup.button(text="➡️ Следующая", callback_data=f"next_page_{page + 1}")
+
+    markup.adjust(2, repeat=True)
 
     try:
         await callback.message.delete()
-        current_track = track_list[page]
-        await send_audio_message(callback.message, current_track, markup)
-    except IndexError:
-        await callback.message.answer("🎵 Плейлист завершен", reply_markup=markup.as_markup())
+        await callback.message.answer(
+            f"🎧 Страница {page + 1}\nВыберите трек:",
+            reply_markup=markup.as_markup()
+        )
+    except Exception as e:
+        await callback.message.answer(f"⚠️ Ошибка: {str(e)}")
 
-    await state.update_data(page=page)
 
-
-@router.callback_query(F.data.startswith("previous:"), PlaylistsStates.wait_choose)
-@router.callback_query(F.data.startswith("next:"), PlaylistsStates.wait_choose)
-async def navigate_pages(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("track_"), PlaylistsStates.wait_choose)
+async def play_selected_track(callback: types.CallbackQuery, state: FSMContext):
+    track_index = int(callback.data.split("_")[1])
     data = await state.get_data()
-    requested_page = int(callback.data.split(":")[1])
     track_list = data['current_list']
-    new_page = max(0, min(requested_page, len(track_list) - 1))
 
     markup = InlineKeyboardBuilder()
-    if new_page > 0:
-        markup.button(text="⬅️ Предыдущая", callback_data=f"previous:{new_page - 1}")
-    if (new_page + 1) < len(track_list):
-        markup.button(text="➡️ Следующая", callback_data=f"next:{new_page + 1}")
-    markup.adjust(1, 1)
-
     try:
-        # Переносим удаление сообщения после проверок
-        current_track = track_list[new_page]
-        msg = await send_audio_message(callback.message, current_track, markup)
-        if msg:  # Успешная отправка
-            await callback.message.delete()
-    except Exception as e:
-        # Отправляем новое сообщение вместо редактирования
-        await callback.message.answer(f"⚠️ Ошибка: {str(e)}")
-        await callback.answer()  # Снимаем индикатор загрузки
+        current_track = track_list[track_index]
+        await send_audio_message(callback.message, current_track, markup)
+    except IndexError:
+        await callback.message.answer("🚫 Трек не найден")
+
+
+@router.callback_query(F.data.startswith("prev_page_"), PlaylistsStates.wait_choose)
+@router.callback_query(F.data.startswith("next_page_"), PlaylistsStates.wait_choose)
+async def navigate_pages(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    track_list = data['current_list']
+    per_page = data['items_per_page']
+    action = callback.data.split("_")[:2]
+    page = callback.data.split("_")[2]
+    print(callback.data)
+    print(action, page)
+    new_page = int(page)
 
     await state.update_data(page=new_page)
+
+    markup = InlineKeyboardBuilder()
+    start = new_page * per_page
+    end = start + per_page
+    current_page_tracks = track_list[start:end]
+
+    for idx, track in enumerate(current_page_tracks, start=1):
+        markup.button(
+            text=f"{idx}. {track['название'][:15]}",
+            callback_data=f"track_{start + idx - 1}"
+        )
+
+    if new_page > 0:
+        markup.button(text="⬅️ Предыдущая", callback_data=f"prev_page_{new_page - 1}")
+    if end < len(track_list):
+        markup.button(text="➡️ Следующая", callback_data=f"next_page_{new_page + 1}")
+
+    markup.adjust(2, repeat=True)
+
+    try:
+        await callback.message.edit_text(
+            f"🎧 Страница {new_page + 1}\nВыберите трек:",
+            reply_markup=markup.as_markup()
+        )
+    except Exception as e:
+        await callback.message.answer(f"⚠️ Ошибка при обновлении: {str(e)}")
