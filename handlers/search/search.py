@@ -18,7 +18,7 @@ router = Router()
 
 @router.message(F.text.endswith("Поиск музыки"))
 async def start_search(message: types.Message, state: FSMContext):
-
+    await state.clear()
 
     markup = InlineKeyboardBuilder()
     by_text = types.InlineKeyboardButton(
@@ -125,22 +125,25 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
-        text="➕ Добавить в плейлист",
+        text="➕ Добавить в Избранное",
         callback_data=callback_data  # Используем безопасную версию
     ))
 
-    success, track_data = download_song(result, int(callback.data[-1]), path)
+    file_path = os.path.join(path, f"{name}.mp3")  # или другой формат
 
-    print(success, track_data)
+    # Проверяем существование файла
+    if os.path.exists(file_path):
+        print(f"Трек {name} уже существует, пропускаем загрузку")
+    else:
+        success, track_data = download_song(result, int(callback.data[-1]), path)
 
-    if not success:
-        await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
-        return
+        print(success, track_data)
 
-    filename = os.path.join(path, f"{track_data['title']}.mp3")
-    mp3_path = f"{filename}.mp3"
+        if not success:
+            await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
+            return
 
-    file = FSInputFile(mp3_path)
+    file = FSInputFile(file_path)
     await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
 
@@ -149,7 +152,15 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "audio", SearchStates.choose_method)
 async def get_voice(callback: types.CallbackQuery, state: FSMContext):
     mes_text = "Хорошо! Тогда запишите голосовое сообщение, где будет слышно песню, примерно на 30 сек."
-    await callback.message.edit_text(text=mes_text)
+
+    markup = InlineKeyboardBuilder()
+    cansel = types.InlineKeyboardButton(
+        text="Отменить поиск",
+        callback_data="cansel"
+    )
+    markup.add(cansel)
+
+    await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(SearchStates.wait_audio)
 
 
@@ -172,7 +183,7 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
-        text="➕ Добавить в плейлист",
+        text="➕ Добавить в Избранное",
         callback_data=f"add_song:{best_name}"
     ))
 

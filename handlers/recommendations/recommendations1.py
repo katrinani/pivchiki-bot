@@ -209,6 +209,8 @@ async def rebase_song_from_playlist(pool: asyncpg.Pool, user_id: int, song_name:
 #стартовое окно
 @router.message(F.text.endswith("Рекомендации"))
 async def start_recommendations(message: types.Message, state: FSMContext):
+    await state.clear()
+
     markup = InlineKeyboardBuilder()
     by_user = types.InlineKeyboardButton(
         text="👥 От пользователя с похожим вкусом",

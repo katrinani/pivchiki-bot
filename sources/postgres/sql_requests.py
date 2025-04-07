@@ -11,9 +11,16 @@ conn = psycopg2.connect(
     host="localhost"
 )
 
+
 def create_user(user_id: int):
     cursor = conn.cursor()
     try:
+        # Проверяем существование пользователя
+        cursor.execute("SELECT 1 FROM Users WHERE UserId = %s;", (user_id,))
+        if cursor.fetchone() is not None:
+            print("Пользователь уже существует")
+            return True
+
         cursor.execute("BEGIN;")
 
         # 1. Создаем пользователя
@@ -31,11 +38,6 @@ def create_user(user_id: int):
         return True
 
     except Exception as e:
-        if 'duplicate key value violates unique constraint "users_pkey"' in e.args[0]:
-            conn.rollback()
-            print("Успешная авторизация")
-            return True
-
         conn.rollback()
         print(f"Error creating user: {e}")
         return False

@@ -10,6 +10,8 @@ router = Router()
 
 @router.message(F.text.endswith("Загрузить трек"))
 async def start_load(message: types.Message, state: FSMContext):
+    await state.clear()
+
     mes_text = "Хорошо! Отправьте пожалуйста вашу песню в формате .mp3"
     await message.answer(text=mes_text)
     await state.set_state(DownloadStates.wait_mp3)
