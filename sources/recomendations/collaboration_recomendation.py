@@ -1,103 +1,133 @@
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.metrics.pairwise import pairwise_distances
-from sklearn.metrics import mean_squared_error
-from math import sqrt
-import pandas as pd
+import psycopg2
+from ..postgres import config  # Изменен импорт
 
+class CollaborativeFilteringRecommender:
+    def __init__(self):
+        """Инициализирует класс и устанавливает соединение с базой данных."""
+        self.conn = self._connect_to_db()
 
-data = {
-    'userId': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-               2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-               3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-               4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-               5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-               6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-               7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-               8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-               9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
-               10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
-    'itemId': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] * 10,
-    'rating': [0, 4, 0, 2, 1, 0, 5, 4, 0, 2,   # userId 1
-               0, 5, 4, 3, 2, 1, 0, 5, 4, 3,   # userId 2
-               2, 1, 0, 5, 4, 3, 2, 1, 0, 5,   # userId 3
-               4, 3, 2, 1, 0, 5, 4, 3, 2, 1,   # userId 4
-               0, 5, 4, 3, 2, 1, 0, 5, 4, 3,   # userId 5
-               2, 1, 0, 5, 4, 3, 2, 1, 0, 5,   # userId 6
-               4, 3, 2, 1, 0, 5, 4, 3, 2, 1,   # userId 7
-               0, 5, 4, 3, 2, 1, 0, 5, 4, 3,   # userId 8
-               2, 1, 0, 5, 4, 3, 2, 1, 0, 5,   # userId 9
-               4, 3, 2, 1, 0, 5, 4, 3, 2, 1]   # userId 10
-}
+    def _connect_to_db(self):
+        """Устанавливает соединение с базой данных PostgreSQL."""
+        conn = None
+        try:
+            conn = psycopg2.connect(
+                host=config.config_db["host"],
+                database=config.config_db["dbname"],
+                user=config.config_db["user"],
+                password=config.config_db["password"]
+            )
+            print("CollaborativeFilteringRecommender: Успешно подключено к базе данных!")
+        except psycopg2.Error as e:
+            print(f"CollaborativeFilteringRecommender: Ошибка подключения к базе данных: {e}")
+        return conn
 
-df = pd.DataFrame(data)
+    async def get_all_users(self):
+        """Получает всех пользователей и их UserId."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("SELECT UserId FROM Users;")
+            users = [row[0] for row in cursor.fetchall()]
+            return users
+        except Exception as e:
+            print(f"Ошибка при получении пользователей: {e}")
+            return []
+        finally:
+            cursor.close()
 
-n_users = df['userId'].unique().shape[0]
-n_items = df['itemId'].unique().shape[0]
+    async def get_user_similarity_vector(self, user_id: int):
+        """Получает вектор сходства пользователя из базы данных."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("SELECT CollaborativeFilteringResults FROM Users WHERE UserId = %s;", (user_id,))
+            result = cursor.fetchone()
+            if result and result[0]:
+                return np.array(result[0])
+            else:
+                return None
+        except Exception as e:
+            print(f"Ошибка при получении вектора сходства пользователя {user_id}: {e}")
+            return None
+        finally:
+            cursor.close()
 
-input_list = df['itemId'].unique()
+    async def get_user_rated_tracks(self, user_id: int):
+        """Получает список TrackId, которые пользователь оценил."""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("SELECT TrackId FROM UserTrackRatings WHERE UserId = %s AND Rating != 0;", (user_id,)) # Учитываем -1 и 1
+            rated_tracks = [row[0] for row in cursor.fetchall()]
+            return set(rated_tracks)
+        except Exception as e:
+            print(f"Ошибка при получении оцененных треков пользователя {user_id}: {e}")
+            return set()
+        finally:
+            cursor.close()
 
+    async def get_top_rated_track_ids_by_similar_users(self, current_user_id: int, similarity_threshold: float = 0.1, top_n: int = 10): # Понижен порог для большего количества соседей
+        """Получает top N наиболее высоко оцененных TrackId похожими пользователями."""
+        current_user_similarity = await self.get_user_similarity_vector(current_user_id)
+        if current_user_similarity is None:
+            return []
 
-def scale_item_id(input_id):
-    return np.where(input_list == input_id)[0][0] + 1
+        all_users = await self.get_all_users()
+        similar_users = []
+        for user_id in all_users:
+            if user_id != current_user_id:
+                other_user_similarity = await self.get_user_similarity_vector(user_id)
+                if other_user_similarity is not None and current_user_similarity.shape == other_user_similarity.shape:
+                    similarity_score = current_user_similarity[all_users.index(user_id)]
+                    if similarity_score > similarity_threshold:
+                        similar_users.append(user_id)
 
-df['itemId'] = df['itemId'].apply(scale_item_id)
+        if not similar_users:
+            return []
 
+        track_ratings_by_similar = {}
+        for user_id in similar_users:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT TrackId, Rating
+                    FROM UserTrackRatings
+                    WHERE UserId = %s AND Rating != 0;
+                """, (user_id,))
+                user_ratings = cursor.fetchall()
+                for track_id, rating in user_ratings:
+                    if track_id not in track_ratings_by_similar:
+                        track_ratings_by_similar[track_id] = 0
+                    track_ratings_by_similar[track_id] += rating # Суммируем оценки (-1, 1)
+            except Exception as e:
+                print(f"Ошибка при получении оценок пользователя {user_id}: {e}")
+            finally:
+                cursor.close()
 
-train_data, test_data = train_test_split(df, test_size=0.20)
+        sorted_tracks = sorted(track_ratings_by_similar.items(), key=lambda item: item[1], reverse=True)
+        current_user_rated = await self.get_user_rated_tracks(current_user_id)
+        recommendations_track_ids = [track_id for track_id, _ in sorted_tracks if track_id not in current_user_rated][:top_n]
+        return recommendations_track_ids
 
-# Создаем две user-item матрицы – для обучения и для теста
-train_data_matrix = np.zeros((n_users, n_items))
-for line in train_data.itertuples():
-    train_data_matrix[line[1] - 1, line[2] - 1] = line[3]
+    async def get_track_paths_by_ids(self, track_ids: list[int]):
+        """Получает пути к аудиофайлам треков по их ID."""
+        if not track_ids:
+            return [], []
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(f"SELECT Song, Name FROM Tracks WHERE TrackId IN %s;", (tuple(track_ids),))
+            tracks_data = cursor.fetchall()
+            paths = [row[0] for row in tracks_data]
+            names = [row[1] for row in tracks_data]
+            return names, paths
+        except Exception as e:
+            print(f"Ошибка при получении путей к трекам: {e}")
+            return [], []
+        finally:
+            cursor.close()
 
-test_data_matrix = np.zeros((n_users, n_items))
-for line in test_data.itertuples():
-    test_data_matrix[line[1] - 1, line[2] - 1] = line[3]
-
-# Вычисляем сходство пользователей
-user_similarity = pairwise_distances(train_data_matrix, metric='cosine')
-
-# Функция предсказания
-def predict(ratings, similarity, type):
-    if type == 'user':
-      mean_user_rating = ratings.mean(axis=1)
-      ratings_diff = (ratings - mean_user_rating[:, np.newaxis])
-      pred = mean_user_rating[:, np.newaxis] + similarity.dot(ratings_diff) / np.array([np.abs(similarity).sum(axis=1)]).T
-    elif type == 'item':
-      mean_item_rating = ratings.mean(axis=0)
-      ratings_diff = (ratings - mean_item_rating[np.newaxis, :])
-      pred = mean_item_rating[np.newaxis, :] + similarity.dot(ratings_diff) / np.array([np.abs(similarity).sum(axis=0)]).T
-    return pred
-
-# Получаем предсказания
-user_prediction = predict(train_data_matrix, user_similarity, 'item')
-
-# Для оценки качества предсказания (RMSE)
-def rmse(prediction, ground_truth):
-    prediction = prediction[ground_truth.nonzero()].flatten()
-    ground_truth = ground_truth[ground_truth.nonzero()].flatten()
-    return sqrt(mean_squared_error(prediction, ground_truth))
-
-# Функция для получения рекомендаций
-def get_recommendations(user_id, user_prediction, original_df, n_recommendations):
-    user_idx = user_id - 1
-    user_ratings = user_prediction[user_idx]
-
-    # Оцененные песни
-    rated_movies = original_df[(original_df['userId'] == user_id) & ((original_df['rating'] > 0)) ]['itemId'].values
-
-    # Исключаем прослушенные
-    recommendations = []
-    for movie_id, predicted_rating in enumerate(user_ratings, start=1):
-        if movie_id not in rated_movies:
-            recommendations.append((movie_id, predicted_rating))
-
-    # Сортируем рекомендации в порядке убывания
-    recommendations.sort(key=lambda x: x[1], reverse=True)
-
-    # Выбираем первые n_recommendations песен
-    return recommendations[:n_recommendations]
-
-# Получаем рекомендации для пользователя
-print(get_recommendations(1, user_prediction, df, 10))
+    async def get_recommendations(self, user_id: int, top_n: int = 10):
+        """
+        Получает рекомендации треков на основе коллаборативной фильтрации (возвращает названия и пути).
+        """
+        recommended_track_ids = await self.get_top_rated_track_ids_by_similar_users(user_id, top_n=top_n)
+        recommended_names, recommended_paths = await self.get_track_paths_by_ids(recommended_track_ids)
+        return list(zip(recommended_names, recommended_paths))
