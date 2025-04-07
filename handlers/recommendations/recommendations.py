@@ -3,6 +3,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from sources.recomendations.collaboration_recomendation import CollaborativeFilteringRecommender
 from states.states_recommendations import RecommendationsStates
 from sources.postgres.sql_requests import rebase_song_from_playlist
 from sources.recomendations.text_grade import get_similar_tracks
@@ -15,7 +16,6 @@ router = Router()
 #стартовое окно
 @router.message(F.text.endswith("Рекомендации"))
 async def start_recommendations(message: types.Message, state: FSMContext):
-
     markup = InlineKeyboardBuilder()
     by_user = types.InlineKeyboardButton(
         text="👥 От пользователя с похожим вкусом",
@@ -37,26 +37,44 @@ async def start_recommendations(message: types.Message, state: FSMContext):
     await state.update_data(last_message_id=sent_message.message_id)
     await state.set_state(RecommendationsStates.choose_recommendations)
 
-
 # От пользователя с похожим вкусом
 @router.callback_query(F.data == "user", RecommendationsStates.choose_recommendations)
-async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
-    # TODO запрос к алгоритму похожий пользователь
-    songs = ["Song 1", "Song 2", "Song 3", "Song 4", "Song 5",
-             "Song 6", "Song 7", "Song 8", "Song 9", "Song 10"]
+async def recommend_by_similar_user(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    recommender = CollaborativeFilteringRecommender()  # Создаем экземпляр класса
+    recommended_tracks_data = await recommender.get_recommendations(user_id)
 
-    await state.update_data(
-        songs=songs,
-        current_index=0,
-        total=len(songs)
-    )
+    if recommended_tracks_data:
+        songs = [name for name, path in recommended_tracks_data]
+        paths = [path for name, path in recommended_tracks_data]
 
-    await callback.message.edit_text(
-        text=f"👥 От пользователя с похожим вкусом:\n🎵 {songs[0]}",
-        reply_markup=get_pagination_markup(0, len(songs))
-    )
-    await state.set_state(RecommendationsStates.wait_recommendations)
+        await state.update_data(
+            songs=songs,
+            paths=paths,
+            current_index=0,
+            total=len(songs),
+            last_message_id=None
+        )
 
+        # Отправляем первое аудио
+        file = FSInputFile(paths[0])
+        message = await callback.message.answer_audio(
+            file,
+            caption=f"\n🎵 {songs[0]}",
+            reply_markup=get_pagination_markup(0, len(songs))
+        )
+
+        # Сохраняем ID сообщения
+        await state.update_data(last_message_id=message.message_id)
+
+        # Удаляем исходное сообщение с кнопкой
+        await callback.message.delete()
+
+        await state.set_state(RecommendationsStates.wait_recommendations)
+    else:
+        await callback.message.edit_text(
+            text="Нет рекомендаций от пользователей с похожим вкусом."
+        )
 
 @router.callback_query(F.data == "similar", RecommendationsStates.choose_recommendations)
 async def sad_mood(callback: types.CallbackQuery, state: FSMContext):
@@ -210,7 +228,7 @@ async def handle_playlist(callback: types.CallbackQuery, state: FSMContext):
     songs = data["songs"]
     selected_song = songs[current_index]
 
-    # сохранение в БД
+    # сохранение в БД (код может отличаться в зависимости от вашей реализации)
     rebase_song_from_playlist(song_name=selected_song, playlist_to_name="Избранное")
 
     await callback.answer(
@@ -227,12 +245,8 @@ async def handle_reaction(callback: types.CallbackQuery, state: FSMContext):
     songs = data["songs"]
     selected_song = songs[current_index]
 
-    # Сохранение в бд
-    rebase_song_from_playlist(song_name=selected_song, playlist_to_name="Избранное")
-
-    reaction = "лайкнута" if callback.data == "like" else "дизлайкнута"
-    await callback.answer(f"Песня {reaction}!", show_alert=False)
-
+    reaction_value = 1 if callback.data == "like" else -1
+    user_id = callback.from_user
 
 
 
