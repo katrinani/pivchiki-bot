@@ -5,9 +5,9 @@ from sources.postgres.config import config_db
 
 
 conn = psycopg2.connect(
-    dbname="music_db1",
+    dbname="postgres",
     user="postgres",
-    password="postgres",
+    password="5432",
     host="localhost"
 )
 
@@ -269,6 +269,60 @@ def delete_playlist(playlist_name: str, user_id: int):
         return False
     finally:
         cursor.close()
+
+
+def get_track_id(song_name: str):
+    """
+    Возвращает id трека по его названию
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN;")
+
+        cursor.execute(
+            "SELECT Trackid FROM Tracks WHERE Name = %s",
+            (song_name,)
+        )
+
+        trackid = cursor.fetchone()
+        conn.commit()
+        return trackid
+    except Exception as e:
+        conn.rollback()
+        print(f"Error get trackid {e}")
+    finally:
+        cursor.close()
+
+
+def rating_process(userid: int, trackid: int, rating: int):
+    """
+    Добавляет rating в таблицу UserTrackRatings.
+    Возвращает True или False в зависимости от успеха
+    """
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("BEGIN;")
+
+        cursor.execute(
+            """
+            INSERT INTO UserTrackRatings 
+                    (UserId, TrackId, Rating) 
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (UserId, TrackId) 
+                    DO UPDATE SET rating = EXCLUDED.rating
+            """,
+            (userid, trackid, rating)
+        )
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"Error in rating process {e}")
+        return False
+    finally:
+        cursor.close()
+
+
 
 
 def remove_song_from_playlist(playlist_name: str, user_id: int, song_name: str):

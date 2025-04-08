@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sources.recomendations.collaboration_recomendation import CollaborativeFilteringRecommender
 from states.states_recommendations import RecommendationsStates
-from sources.postgres.sql_requests import rebase_song_from_playlist
+from sources.postgres.sql_requests import rebase_song_from_playlist, get_track_id, rating_process
 from sources.recomendations.text_grade import get_similar_tracks
 from sources.recomendations.physic_grade import get_similar_features
 from sources.postgres.sql_requests import get_best_tracks
@@ -246,9 +246,13 @@ async def handle_reaction(callback: types.CallbackQuery, state: FSMContext):
     current_index = data["current_index"]
     songs = data["songs"]
     selected_song = songs[current_index]
+    trackid = get_track_id(selected_song)
+    reaction_str = "лайк" if callback.data =="like" else "дизлайк"
 
     reaction_value = 1 if callback.data == "like" else -1
-    user_id = callback.from_user
-
-
-
+    user_id = callback.from_user.id
+    ok = rating_process(user_id, trackid, reaction_value)
+    if ok:
+        await callback.message.answer(f"Вы поставили {reaction_str}")
+    else:
+        await callback.message.answer("Что-то пошло не так.")
