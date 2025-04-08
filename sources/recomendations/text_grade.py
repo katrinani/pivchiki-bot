@@ -68,18 +68,19 @@ def get_similar_track(target_trackid, vector_name, top_n=10):
 
 
 def get_similar_tracks(track_ids, top_n=10):
+    print(track_ids)
     all_tracks = []
     for track_id in track_ids:
         # Получаем первый уникальный трек из textvector
         tracks1 = get_similar_track(track_id, "textvector")
         for track in tracks1:
-            if track not in all_tracks:
+            if track not in all_tracks and track['trackid'] not in track_ids:
                 all_tracks.append(track)
                 break
         # Получаем первый уникальный трек из textllmvector
         tracks2 = get_similar_track(track_id, "textllmvector")
         for track in tracks2:
-            if track not in all_tracks:
+            if track not in all_tracks and track['trackid'] not in track_ids:
                 all_tracks.append(track)
                 break
 
@@ -91,6 +92,7 @@ def get_similar_tracks(track_ids, top_n=10):
         names.append(track['name'])
         paths.append(track['song'])
 
+    print(names)
     return names, paths
 
 """if __name__ == "__main__":

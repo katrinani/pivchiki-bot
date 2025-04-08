@@ -32,7 +32,6 @@ router = Router()
 #стартовое окно
 @router.message(F.text.endswith("Мои плейлисты"))
 async def start_recommendations(message: types.Message, state: FSMContext):
-    await state.clear()
 
     # запрос в БД
     user_id = message.from_user.id

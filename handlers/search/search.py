@@ -9,7 +9,7 @@ from sources.search.search import find_most_similar_song, extract_features, to_s
 # импортируем статусы
 from states.states_search import SearchStates
 # парсер из ютуба
-from sources.parsers.YouTubeBomber import find_in_youtube, download_song
+from sources.parsers.YouTubeBomber import find_in_youtube, download_song, change_variable
 # методы бд
 from sources.postgres.sql_requests import save_search_history, save_mp3, rebase_song_from_playlist
 
@@ -18,7 +18,6 @@ router = Router()
 
 @router.message(F.text.endswith("Поиск музыки"))
 async def start_search(message: types.Message, state: FSMContext):
-    await state.clear()
 
     markup = InlineKeyboardBuilder()
     by_text = types.InlineKeyboardButton(
@@ -52,12 +51,12 @@ async def get_info_about_song(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text=mes_text, reply_markup=markup.as_markup())
     await state.set_state(SearchStates.wait_info_about_song)
 
-
 @router.message(F.text, SearchStates.wait_info_about_song)
 async def request_processing(message: types.Message, state: FSMContext):
     # сохранить в бд запрос и время запроса
     user_id = message.from_user.id
     save_search_history(user_id, message.text)
+    change_variable(message.text)
 
     sent_message = await message.answer("Ищу! Минутку...")
     await state.update_data(search_message_id=sent_message.message_id)
@@ -115,35 +114,26 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
     result = data["result"]
 
     path = "sources/songs"
-    name = result[int(callback.data[-1]) - 1]
 
-    callback_data = f"add_song:{name}"
+    success, track_data, title = download_song(result, int(callback.data[-1]), path)
 
-    # Проверяем длину callback_data
-    if len(callback_data.encode('utf-8')) > 64:
-        callback_data = callback_data[:64]  # Обрезаем до 64 байт
+    # Проверяем существование файла
+    if not success:
+        await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
+        return
+
+    filename = os.path.join(path, f"{track_data['title']}.mp3")
+    mp3_path = f"{filename}.mp3"
+
+    print(title)
 
     markup = InlineKeyboardBuilder()
     markup.add(types.InlineKeyboardButton(
         text="➕ Добавить в Избранное",
-        callback_data=callback_data  # Используем безопасную версию
+        callback_data=f"add_song:{title}"  # Используем безопасную версию
     ))
 
-    file_path = os.path.join(path, f"{name}.mp3")  # или другой формат
-
-    # Проверяем существование файла
-    if os.path.exists(file_path):
-        print(f"Трек {name} уже существует, пропускаем загрузку")
-    else:
-        success, track_data = download_song(result, int(callback.data[-1]), path)
-
-        print(success, track_data)
-
-        if not success:
-            await callback.message.answer("Не удалось скачать, попробуйте позже еще раз")
-            return
-
-    file = FSInputFile(file_path)
+    file = FSInputFile(mp3_path)
     await callback.message.answer_audio(file, reply_markup=markup.as_markup())
     await state.clear()
 
@@ -171,6 +161,7 @@ async def voice_processing(message: types.Message, state: FSMContext, bot: Bot):
     await bot.download(message.voice.file_id, destination=file_path)
 
     nearest_song, best_name, max_similarity = find_most_similar_song(file_path)
+    print(best_name)
 
     if nearest_song == "":
         text = "К сожалению я не смог найти песню. Попробуйте повторить поиск"
