@@ -1,10 +1,20 @@
 import os
+import re
+
 import yt_dlp
+from markdown.extensions.toc import slugify
+
 from sources.postgres.sql_requests import save_song_to_db
 from sources.parsers.parsing_text import get_song_lyrics
 from sources.recomendations.text_recomendation import get_text_vector
 from sources.recomendations.text_llm_recomendation import get_llm_text_vector
 from sources.recomendations.physical_recomendations import extract_svd_features
+
+my_variable = 'noname song'
+
+def change_variable(new_value):
+    global my_variable
+    my_variable = new_value
 
 def find_in_youtube(query: str):
     # Настройки yt-dlp для поиска
@@ -38,6 +48,8 @@ def download_song(result, choice: int, save_folder: str):
         selected_track = result[choice - 1]
         filename = os.path.join(save_folder, f"{selected_track['title']}.mp3")
 
+        print(my_variable)
+
         # Download settings
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -56,17 +68,25 @@ def download_song(result, choice: int, save_folder: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
 
-        mp3_path = f"{filename}"
+        mp3_path = f"{filename}.mp3"
         print("путь загружен")
         features = extract_svd_features(mp3_path)
         print("фичи загружены")
 
         title, lyrics, language = get_song_lyrics(selected_track['title'])
         print("текст загружен")
-        text_vector = get_text_vector(lyrics).tolist()
-        print("текст вектор загружен")
-        text_llm_vector = get_llm_text_vector(lyrics)
-        print("текст ллм вектор загружен")
+
+        if lyrics is not None:
+            text_vector = get_text_vector(lyrics).tolist()
+            print("текст вектор загружен")
+            text_llm_vector = get_llm_text_vector(lyrics)
+            print("текст ллм вектор загружен")
+        else:
+            text_vector = None
+            text_llm_vector = None
+
+        if title is None:
+            title = my_variable
 
         save_song_to_db(
             title=title,
@@ -78,10 +98,9 @@ def download_song(result, choice: int, save_folder: str):
             features = features.tolist()
         )
 
-        return True, selected_track
+        return True, selected_track, title
     else:
         return False
-
 """
 if __name__ == "__main__":
     f1, f2 = extract_svd_features("ДДТ - Что такое осень (Official video).mp3.mp3")

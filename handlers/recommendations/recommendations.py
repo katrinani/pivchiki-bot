@@ -16,7 +16,6 @@ router = Router()
 #стартовое окно
 @router.message(F.text.endswith("Рекомендации"))
 async def start_recommendations(message: types.Message, state: FSMContext):
-    await state.clear()
 
     markup = InlineKeyboardBuilder()
     by_user = types.InlineKeyboardButton(
