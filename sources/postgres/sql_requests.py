@@ -1,14 +1,14 @@
 import psycopg2
-# pip install psycopg2-binary
 
-from sources.postgres.config import config_db
+from sources.postgres import config
+# pip install psycopg2-binary
 
 
 conn = psycopg2.connect(
-    dbname="music_db1",
-    user="postgres",
-    password="postgres",
-    host="localhost"
+                host=config.config_db["host"],
+                database=config.config_db["dbname"],
+                user=config.config_db["user"],
+                password=config.config_db["password"]
 )
 
 

@@ -73,7 +73,7 @@ def get_song_lyrics(song_name):
             language = detect_language(lyrics)
 
     except Exception as e:
-        print(f"Ошибка при получении текста песни: {e}")
+        return None, None, None
     finally:
         driver.quit()
 
