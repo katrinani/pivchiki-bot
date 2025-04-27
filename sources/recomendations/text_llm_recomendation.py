@@ -43,3 +43,6 @@ def get_llm_text_vector(text: str, model_name: str = "mistral") -> list[float]:
           emotion_vector = [int(score) / 10 for score in scores]
           return emotion_vector
           break
+
+"""if __name__ == "__main__":
+    print(get_llm_text_vector("fasbhfasbfas"))"""

@@ -9,7 +9,7 @@ from handlers.recommendations import recommendations, recommendations1
 from handlers.playlists import playlists
 
 
-TOKEN = "7593946422:AAF6v1EqAR865XA--0gnKtUViJCZlXBYV0I"
+TOKEN = "7258847191:AAGCd4xDlAM4MjDlnGBfHtEmUNTU19Xc7E8"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()

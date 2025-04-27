@@ -5,7 +5,7 @@ import tensorflow_hub as hub
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
 
-model_vggish = hub.load('https://tfhub.dev/google/vggish/1')
+model_vggish = hub.load('C:\\Users\\Artem\\PycharmProjects\\pivchiki-bot\\sources\\search\\sources\\model')
 
 def extract_features(audio_path):
     audio, sr = librosa.load(audio_path, sr=16000)

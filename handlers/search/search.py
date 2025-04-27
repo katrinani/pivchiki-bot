@@ -113,7 +113,7 @@ async def send_song(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     result = data["result"]
 
-    path = "sources/songs"
+    path = "sources\\songs"
 
     success, track_data, title = download_song(result, int(callback.data[-1]), path)
 
@@ -199,7 +199,7 @@ async def voice_processing(message: types.Message, state: FSMContext):
 async def add_new_song(callback: types.CallbackQuery, state: FSMContext):
     song_name = callback.data.split(":")[1]
 
-    ok = rebase_song_from_playlist(song_name, "Избранное")
+    ok = rebase_song_from_playlist(callback.message.from_user.id, song_name, "Избранное")
     if not ok:
         await callback.message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
     else:

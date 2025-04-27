@@ -3,9 +3,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sources.recomendations.collaboration_recomendation import CollaborativeFilteringRecommender
+from sources.recomendations.collaboration_recomendation import main_get_recommendations
 from states.states_recommendations import RecommendationsStates
-from sources.postgres.sql_requests import rebase_song_from_playlist, get_track_id, rating_process
+from sources.postgres.sql_requests import rebase_song_from_playlist, get_track_id, rating_process, get_track_name, \
+    get_track_path
 from sources.recomendations.text_grade import get_similar_tracks
 from sources.recomendations.physic_grade import get_similar_features
 from sources.postgres.sql_requests import get_best_tracks
@@ -42,12 +43,17 @@ async def start_recommendations(message: types.Message, state: FSMContext):
 @router.callback_query(F.data == "user", RecommendationsStates.choose_recommendations)
 async def recommend_by_similar_user(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    recommender = CollaborativeFilteringRecommender()  # Создаем экземпляр класса
-    recommended_tracks_data = await recommender.get_recommendations(user_id)
+    recommended_tracks_data = main_get_recommendations(user_id)
 
     if recommended_tracks_data:
-        songs = [name for name, path in recommended_tracks_data]
-        paths = [path for name, path in recommended_tracks_data]
+        tracks_id = [id.split("trackid")[1] for id, prediction in recommended_tracks_data]
+
+        songs = []
+        paths =[]
+        for id in tracks_id:
+            songs.append(get_track_name(id))
+            paths.append(get_track_path(id))
+
 
         await state.update_data(
             songs=songs,
@@ -58,10 +64,10 @@ async def recommend_by_similar_user(callback: types.CallbackQuery, state: FSMCon
         )
 
         # Отправляем первое аудио
-        file = FSInputFile(paths[0])
+        file = FSInputFile(paths[0][0])
         message = await callback.message.answer_audio(
             file,
-            caption=f"\n🎵 {songs[0]}",
+            caption=f"\n🎵 {songs[0][0]}",
             reply_markup=get_pagination_markup(0, len(songs))
         )
 
@@ -163,11 +169,11 @@ async def handle_pagination(callback: types.CallbackQuery, state: FSMContext):
         return
 
     # 1. Сначала отправляем новое аудио
-    file = FSInputFile(paths[new_index])
+    file = FSInputFile(paths[new_index][0])
     try:
         message = await callback.message.answer_audio(
             audio=file,
-            caption=f"🎵 {songs[new_index]}",
+            caption=f"🎵 {songs[new_index][0]}",
             reply_markup=get_pagination_markup(new_index, total)
         )
     except Exception as e:
@@ -230,7 +236,7 @@ async def handle_playlist(callback: types.CallbackQuery, state: FSMContext):
     selected_song = songs[current_index]
 
     # сохранение в БД (код может отличаться в зависимости от вашей реализации)
-    rebase_song_from_playlist(song_name=selected_song, playlist_to_name="Избранное")
+    rebase_song_from_playlist(callback.message.from_user.id,song_name=selected_song, playlist_to_name="Избранное")
 
     await callback.answer(
         text=f"«{selected_song}» добавлена в плейлист Избранное!",

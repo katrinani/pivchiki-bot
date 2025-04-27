@@ -48,7 +48,7 @@ async def load_song(message: types.Message, state: FSMContext, bot: Bot):
     if not ok:
         await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
     else:
-        ok = rebase_song_from_playlist(message.audio.file_name, "Избранное")
+        ok = rebase_song_from_playlist(message.from_user.id ,message.audio.file_name, "Избранное")
         if not ok:
             await message.answer("Не удалось сохранить песню. Попробуйте позже еще раз")
         else:

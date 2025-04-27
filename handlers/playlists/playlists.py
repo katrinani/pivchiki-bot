@@ -290,7 +290,7 @@ async def rebase_song(message: types.Message, state: FSMContext):
         new_playlist = data['new_playlist']
         old_playlists = data['name_playlist']
         song_name = message.text
-        ok = rebase_song_from_playlist(song_name, new_playlist, old_playlists)
+        ok = rebase_song_from_playlist(message.from_user.id, song_name, new_playlist, old_playlists)
         if not ok:
             await message.answer("При перемещение что-то пошло не так, попробуйте еще раз позже")
         else:

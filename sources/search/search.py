@@ -11,7 +11,8 @@ from sources.postgres.sql_requests import get_features
 # Загрузка модели VGGish
 os.environ['TFHUB_CACHE_DIR'] = 'tfhub_cache'
 
-model = hub.load("https://tfhub.dev/google/vggish/1")
+
+model = hub.load("C:\\Users\\Artem\\PycharmProjects\\pivchiki-bot\\sources\\search\\sources\\model")
 
 
 def to_svd(features: list[float]):

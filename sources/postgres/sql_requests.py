@@ -271,6 +271,29 @@ def delete_playlist(playlist_name: str, user_id: int):
         cursor.close()
 
 
+def get_track_path(trackid: int):
+    """
+    Возвращает путь трека по его id
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN;")
+
+        cursor.execute(
+            "SELECT Song FROM Tracks WHERE trackid = %s",
+            (trackid,)
+        )
+
+        path = cursor.fetchone()
+        conn.commit()
+        return path
+    except Exception as e:
+        conn.rollback()
+        print(f"Error get path {e}")
+    finally:
+        cursor.close()
+
+
 def get_track_id(song_name: str):
     """
     Возвращает id трека по его названию
@@ -293,6 +316,27 @@ def get_track_id(song_name: str):
     finally:
         cursor.close()
 
+def get_track_name(trackid: int):
+    """
+    Возвращает название трека по его id
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN;")
+
+        cursor.execute(
+            "SELECT Name FROM Tracks WHERE trackid = %s",
+            (trackid,)
+        )
+
+        name = cursor.fetchone()
+        conn.commit()
+        return name
+    except Exception as e:
+        conn.rollback()
+        print(f"Error get name {e}")
+    finally:
+        cursor.close()
 
 def rating_process(userid: int, trackid: int, rating: int):
     """
@@ -378,7 +422,7 @@ def remove_song_from_playlist(playlist_name: str, user_id: int, song_name: str):
         cursor.close()
 
 
-def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, playlist_from_name: str = None):
+def rebase_song_from_playlist(userid: int, song_name: str, playlist_to_name: str = None, playlist_from_name: str = None):
     """
     Функция для добавления песни в плейлист (если задан playlist_to_name)
     или переноса песни из одного плейлиста в другой (если заданы playlist_to_name, playlist_from_name)
@@ -400,7 +444,7 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
         id_song = song_result[0]
 
         # Получаем ID целевого плейлиста по названию
-        cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s", (playlist_to_name,))
+        cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s AND Userid = %s", (playlist_to_name, userid))
         playlist_to_result = cursor.fetchone()
         if not playlist_to_result:
             return False
@@ -408,7 +452,7 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
 
         if playlist_from_name:
             # Получаем ID исходного плейлиста по названию
-            cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s", (playlist_from_name,))
+            cursor.execute("SELECT PlaylistId FROM Playlists WHERE Name = %s AND Userid = %s", (playlist_from_name, userid))
             playlist_from_result = cursor.fetchone()
             if not playlist_from_result:
                 return False
@@ -442,6 +486,8 @@ def rebase_song_from_playlist(song_name: str, playlist_to_name: str = None, play
         return False
     finally:
         cursor.close()
+
+
 
 def save_song_to_db(title, file_path, lyrics, language, text_vector, text_llm_vector, features):
     """Save song information to tracks and artists tables"""
@@ -566,6 +612,67 @@ def get_best_features(user_id):
     except Exception as e:
         print(f"Ошибка при получении треков из плейлиста: {e}")
         return None
+
+
+def create_user_item_table():
+    cursor = conn.cursor()
+
+    try:
+        # Начинаем транзакцию
+        cursor.execute("BEGIN;")
+
+        # Выполняем PL/pgSQL блок для создания и заполнения таблицы
+        cursor.execute(
+            """
+            DO $$
+            DECLARE
+                columns TEXT;
+                query TEXT;
+            BEGIN
+                -- Удаляем таблицу, если она уже существует
+                EXECUTE 'DROP TABLE IF EXISTS crosstab_result';
+            
+                -- Получаем список уникальных trackid и формируем строку для столбцов
+                SELECT string_agg('trackid' || trackid || ' INT', ', ')
+                INTO columns
+                FROM (SELECT DISTINCT trackid FROM usertrackratings ORDER BY trackid) AS t;
+            
+                -- Создаем нормальную таблицу
+                EXECUTE 'CREATE TABLE crosstab_result (
+                    userid INT, ' || columns || '
+                )';
+            
+                -- Формируем динамический запрос для вставки данных с заменой NULL на 0
+                query := 'INSERT INTO crosstab_result
+                SELECT userid, ' || 
+                    (SELECT string_agg('COALESCE(trackid' || trackid || ', 0) AS trackid' || trackid, ', ')
+                     FROM (SELECT DISTINCT trackid FROM usertrackratings ORDER BY trackid) AS t) || '
+                FROM crosstab(
+                    ''SELECT userid, trackid, rating FROM usertrackratings ORDER BY 1, 2'',
+                    ''SELECT DISTINCT trackid FROM usertrackratings ORDER BY 1''
+                ) AS final_result(userid INT, ' || columns || ')';
+            
+                -- Выполняем запрос
+                EXECUTE query;
+            
+                -- Выводим результат для проверки
+                RAISE NOTICE 'Таблица crosstab_result создана и заполнена. NULL заменены на 0.';
+            END $$;
+            """
+        )
+
+        # Фиксируем транзакцию
+        conn.commit()
+        return True
+    except Exception as e:
+        # Откатываем транзакцию в случае ошибки
+        conn.rollback()
+        print(f"Error in rating process: {e}")
+        return False
+    finally:
+        # Закрываем курсор
+        cursor.close()
+
 
 """if __name__ == "__main__":
     print(get_best_tracks("1944615217")[-5:])"""
